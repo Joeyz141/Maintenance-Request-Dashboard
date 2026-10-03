@@ -129,3 +129,64 @@ Each failed statement saved nothing: a single SQL statement is **atomic** (it fu
 - Stop MySQL in the XAMPP Control Panel before shutting down the laptop, and click Start only once.
 - Commit small working steps, so there is always a known-good state to return to.
 - Test the rules, not just the happy path.
+
+## Ticket 2: Connect PHP to MySQL
+
+### Goal
+Let PHP log into the database safely, and prove it works end to end.
+
+### What I built
+
+| Piece | Where it lives | Job |
+|---|---|---|
+| `maintenance_app` account | Inside MariaDB | The app's own login, with limited permissions |
+| `database/create_app_user.sql` | Repo | Recreates that account in seconds (placeholder password) |
+| `.htaccess` | My laptop only (gitignored) | Stores the real password; Apache hands it to PHP |
+| `.htaccess.example` | Repo | Template that shows what `.htaccess` should contain |
+| `config/config.php` | Repo | The settings sheet: host, port, database, user, and the password read from the environment |
+| `src/db.php` | Repo | `get_db_connection()`: builds the DSN, sets safe options, and returns a PDO connection |
+
+```
+Browser → Apache → (whichever page you open, db_test.php) → db.php → config.php (+ DB_PASS from .htaccess)
+        → MariaDB checks maintenance_app's permissions → rows come back → HTML to the browser
+```
+
+The browser never talks to the database. Only PHP has the credentials.
+
+### Key concepts
+
+- **Least privilege:** each account gets only the access its job needs. `maintenance_app` can `SELECT`, `INSERT`, `UPDATE` and `DELETE` rows in `maintenance_dashboard`, and nothing else. If someone ever tricks our PHP, they still can't drop tables or reach other databases. **MariaDB enforces this, not PHP.**
+- **DML vs DDL:** DML(Data Definition Language) changes rows (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) and is the app's job. DDL(Data Manipulation Language) changes structure (`CREATE`, `ALTER`, `DROP`) and is done on purpose by an admin (`root`), for example by running `schema.sql`.
+- **Environment variable:** a named value that the environment (the computer or server) hands to a program when it runs. `PATH` from Ticket 0 is one. `DB_PASS` is one we made. PHP reads it with `getenv('DB_PASS')`. 
+- **Secrets stay out of Git:** `config.php` is committed, so it must never contain the password. `.gitignore` keeps `.htaccess` off GitHub, and Apache refuses to serve `.ht*` files to browsers (403 Forbidden).
+- **DSN (Data Source Name):** one string that says what kind of database to talk to and where it is, like a URL for a database: `mysql:host=localhost;port=3306;dbname=maintenance_dashboard;charset=utf8mb4`. It says **where**. The username and password, which say **who**, are passed separately: `new PDO($dsn, $user, $pass, $options)`.
+- **PDO options:** `ERRMODE_EXCEPTION` (throw an error when something goes wrong), `FETCH_ASSOC` (rows come back by column name)
+- each file has one job, and every page reuses `get_db_connection()` instead of repeating login code.
+- **Error handling:** users see a polite message, and developers see the real error in `C:\xampp\apache\logs\error.log`. Real errors can leak details (host, user, database name) to attackers.
+- **MariaDB vs MySQL:** MariaDB is a community fork of MySQL. It uses the same SQL, the same client tools and the same PDO driver.
+- **Idempotent script:** `create_app_user.sql` starts with `DROP USER IF EXISTS`, so running it once or ten times gives the same result.
+
+### Tests (with a temporary `db_test.php`, deleted before merging)
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Open `db_test.php` | `Connected! Vehicles: 3, Requests: 4` |
+| 2 | View Source | Only the output. No PHP code or credentials |
+| 3 | Stop MySQL, refresh | Polite message for users. Log: `[2002]` (nothing listening on port 3306) |
+| 4 | `SetEnv DB_NAME "wrong_db"` | Polite message for users. Log: `[1044] Access denied` |
+| - | `maintenance_app` tries `CREATE TABLE` / `USE mysql` | `#1142` / `#1044`, so least privilege works |
+
+Why `1044` and not `1049 Unknown database`? MariaDB checks "are you allowed in?" before "does it exist?", so it doesn't reveal which databases exist to accounts that can't use them.
+
+### Problems I debugged
+
+**1. `1045 Access denied` → the app account had disappeared**
+- **Symptom:** `db_test.php` showed the polite error, and the Apache log said `[1045] Access denied for user 'maintenance_app'@'localhost' (using password: YES)`.
+- **Evidence:** `SELECT User, Host FROM mysql.user WHERE User LIKE '%maint%'` returned 0 rows, but `CREATE USER` failed with `#1396` (already exists).
+- **Cause:** MariaDB had never been stopped cleanly (every start in `mysql_error.log` ran crash recovery). The account itself (`mysql.global_priv`) was never saved to disk, but its `GRANT` (`mysql.db`) was. That left an orphaned permission row, which blocked `CREATE USER`.
+- **Fix:** `DELETE FROM mysql.db WHERE User = 'maintenance_app' AND Host = 'localhost';` → `FLUSH PRIVILEGES;` → `CREATE USER` + `GRANT`. Then a clean Stop/Start of MySQL to prove the account was saved.
+- **Prevention:** `database/create_app_user.sql`, and always **Stop** MySQL before shutting down.
+
+### Habits learned
+- Debug in order: **symptom → evidence → cause → fix**. Read the log before changing anything.
+- After any cleanup, re-check that what you meant to keep is still there.
