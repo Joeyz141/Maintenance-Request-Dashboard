@@ -156,7 +156,7 @@ The browser never talks to the database. Only PHP has the credentials.
 ### Key concepts
 
 - **Least privilege:** each account gets only the access its job needs. `maintenance_app` can `SELECT`, `INSERT`, `UPDATE` and `DELETE` rows in `maintenance_dashboard`, and nothing else. If someone ever tricks our PHP, they still can't drop tables or reach other databases. **MariaDB enforces this, not PHP.**
-- **DML vs DDL:** DML(Data Definition Language) changes rows (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) and is the app's job. DDL(Data Manipulation Language) changes structure (`CREATE`, `ALTER`, `DROP`) and is done on purpose by an admin (`root`), for example by running `schema.sql`.
+- **DML vs DDL:** DML(Data Manipulation Language) changes rows (`SELECT`, `INSERT`, `UPDATE`, `DELETE`) and is the app's job. DDL(Data Definition Language) changes structure (`CREATE`, `ALTER`, `DROP`) and is done on purpose by an admin (`root`), for example by running `schema.sql`.
 - **Environment variable:** a named value that the environment (the computer or server) hands to a program when it runs. `PATH` from Ticket 0 is one. `DB_PASS` is one we made. PHP reads it with `getenv('DB_PASS')`. 
 - **Secrets stay out of Git:** `config.php` is committed, so it must never contain the password. `.gitignore` keeps `.htaccess` off GitHub, and Apache refuses to serve `.ht*` files to browsers (403 Forbidden).
 - **DSN (Data Source Name):** one string that says what kind of database to talk to and where it is, like a URL for a database: `mysql:host=localhost;port=3306;dbname=maintenance_dashboard;charset=utf8mb4`. It says **where**. The username and password, which say **who**, are passed separately: `new PDO($dsn, $user, $pass, $options)`.
@@ -190,3 +190,69 @@ Why `1044` and not `1049 Unknown database`? MariaDB checks "are you allowed in?"
 ### Habits learned
 - Debug in order: **symptom → evidence → cause → fix**. Read the log before changing anything.
 - After any cleanup, re-check that what you meant to keep is still there.
+
+## Ticket 3: Show Maintenance Requests
+
+### Goal
+Use the `db.php` connection from Ticket 2 to show every maintenance request in an HTML table in the browser. This is the first time data makes the full trip: MariaDB → PHP → browser. A user can now open the dashboard and see all requests, with the vehicle each one belongs to.
+
+### What I built
+
+| File | Job |
+|---|---|
+| `src/requests.php` | `get_all_requests()`: runs the JOIN query and returns every request with its vehicle. SQL only, no HTML. |
+| `src/helpers.php` | `e()`: escapes any value so it is safe to print in HTML (stops XSS). |
+| `index.php` | The page: connects, calls `get_all_requests()`, loops over the rows and builds the HTML table, passing every value through `e()`. |
+
+
+### How a page load works
+1. The browser sends an HTTP request for `localhost/maintenance-dashboard/`.
+2. Apache receives it and hands `index.php` to PHP.
+3. PHP opens a connection with `get_db_connection()` (from `db.php`).
+4. PHP calls `get_all_requests()`, which sends the JOIN query to MariaDB.
+5. MariaDB sends the rows back, and PHP stores them in the `$requests` array.
+6. PHP loops over `$requests`, escapes every value with `e()`, and builds the HTML table.
+7. Apache sends the finished HTML back, and the browser displays it.
+
+
+### Key concepts
+- **JOIN:** combines two tables using the foreign key (`r.vehicle_id = v.id`), so each request row comes back with its vehicle's make, model and VIN.  
+- **Aliases:** `maintenance_requests AS r` and `vehicles AS v` are short nicknames. The `r.` and `v.` prefixes say which table a column comes from. Both tables have `id` and `created_at`, so without prefixes MySQL errors with "ambiguous column."
+- **fetchAll and the array shape:** `fetchAll()` returns a list of rows, and each row maps column names to values. `$requests[0]['title']` means "first row, title column." Counting starts at 0, so the last of 4 rows is `$requests[3]`. The data is already in the variable, so no new query is needed to read it.
+- **foreach:** `foreach ($requests as $request)` goes through the list one row at a time, calling the current row `$request`, and outputs one `<tr>` per row. 4 rows or 400 rows, the same code works.
+- **XSS and `e()`:** if a value contains `<script>` and PHP prints it raw, the browser **runs it as code**. An attacker could steal a logged-in user's session. `e()` turns `<` into `&lt;`, so the browser shows it as text. **Every value gets `e()`**, because any database value could have come from a user, and a rule with no exceptions can't be forgotten.
+- **ORDER BY with a tie-breaker:** `ORDER BY r.created_at DESC, r.id DESC` shows the newest requests first. When two requests have the same `created_at`, MySQL may return them in any order, so `r.id DESC` breaks the tie and makes the order the same every time (deterministic).
+- **Failing safely:** if the database is down, `try/catch` catches the error. The user sees only a generic "Sorry…" message with HTTP status 500, and the real error goes to `C:\xampp\apache\logs\error.log` for me. No database details leak to the browser.
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | Open the dashboard (happy path) | 4 rows, correct vehicles, newest first |  Order 4, 3, 2, 1. Ford F-150 shows on two requests. |
+| 2 | XSS: insert a request titled `<script>alert("XSS")</script>` | Title shows as text, no popup | Text shown. View Source shows `&lt;script&gt;…` |
+| 2b | Same row, `e()` temporarily removed from the title | The attack fires | ✅ "localhost says XSS" popup. Put `e()` back and confirmed the popup was gone. |
+| 3 | Stop MySQL and refresh | Generic message, status 500, real error logged | ✅ Only "Sorry…" on the page, Network tab showed 500, `error.log`: `Failed to load requests: SQLSTATE[HY000] [2002]` |
+| 4 | Cleanup: `DELETE … WHERE title LIKE '<script>%'` | Back to 4 rows | ✅ |
+
+
+
+### Problems I debugged
+
+**1. Rows in random order (4, 1, 2, 3)**
+- **Symptom:** sorting by `created_at` didn't give a stable order.
+- **Cause:** all seed rows have the same `created_at`, so MySQL could return the ties in any order.
+- **Fix:** added a tie-breaker: `ORDER BY r.created_at DESC, r.id DESC`.
+
+**2. MySQL ran crash recovery on every start**
+- **Symptom:** every start in `mysql_error.log` said "Starting crash recovery", even after pressing Stop in the XAMPP panel.
+- **Evidence:** stopping with the panel → the next start ran crash recovery. Stopping with `mysqladmin` → the next start had none.
+- **Cause:** the XAMPP panel's Stop button kills MySQL instead of shutting it down. This is probably what corrupted `maintenance_app` in Ticket 2.
+- **Fix:** stop MySQL with `C:\xampp\mysql\bin\mysqladmin.exe -u root shutdown`. Start it with the panel, clicking Start once.
+
+### Habits learned
+
+- **Stop MySQL with `mysqladmin … shutdown`, not the panel.** (This replaces the "always Stop MySQL" habit from Ticket 2.) A clean stop shows up as **no** "crash recovery" on the next start.
+- Test security on purpose: prove the attack works without the defense and fails with it.
+
+### Objective
+My dashboard page calls a data function that runs one SQL query, joining maintenance requests with vehicles so each request comes back with its vehicle details. PHP loops over the rows and builds an HTML table, escaping every value with `htmlspecialchars()` to prevent XSS. I tested that by inserting a script tag as a title and confirming it shows as text, and fires only when escaping is removed. If the database is unavailable, the page catches the exception, logs the real error for me, and shows users a generic message with a 500 status.
