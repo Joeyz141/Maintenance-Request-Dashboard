@@ -256,3 +256,112 @@ Use the `db.php` connection from Ticket 2 to show every maintenance request in a
 
 ### Objective
 My dashboard page calls a data function that runs one SQL query, joining maintenance requests with vehicles so each request comes back with its vehicle details. PHP loops over the rows and builds an HTML table, escaping every value with `htmlspecialchars()` to prevent XSS. I tested that by inserting a script tag as a title and confirming it shows as text, and fires only when escaping is removed. If the database is unavailable, the page catches the exception, logs the real error for me, and shows users a generic message with a 500 status.
+
+## Ticket 4: Create a New Maintenance Request
+
+### Goal
+Users can now create a new maintenance request from a form (`create.php`) instead of only viewing the list. When they submit it, PHP validates the data, saves it to MariaDB with a prepared statement, and redirects them back to the list (`index.php`), where the new request appears at the top.
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `src/vehicles.php` | new | `get_all_vehicles()`: returns every vehicle as an array of rows (newest year first). Used to build the dropdown and as the list of valid vehicle ids. |
+| `src/validation.php` | new | `validate_request()`: checks the submitted data and **returns** an array of error messages, one per field. An empty array means everything is valid. It only checks; `create.php` decides what to show. |
+| `src/requests.php` | changed | Added `create_request()`: saves a new request into `maintenance_requests` with a prepared statement (`prepare` + `execute`) and returns the new id. (`get_all_requests()`, the JOIN for the list, is from Ticket 3.) |
+| `create.php` | new | **GET:** shows the empty form, with the vehicle dropdown filled from the database. **POST:** reads the form, validates it, then either shows the form again with red error messages next to the fields (keeping what the user typed), or saves the request and redirects to `index.php`. |
+| `index.php` | changed | Added a "+ New request" link to the form, and a green "Request #N was created." message after a successful save. |
+
+### How creating a request works
+1. The user opens `index.php` (the list) and clicks **+ New request**.
+2. The browser sends a **GET** for `create.php`.
+3. PHP runs `get_all_vehicles()` and builds the dropdown, then sends the finished form to the browser.
+4. The user fills in the form. Nothing runs on the server while they type: PHP only runs when a request arrives.
+5. The user clicks **Create request**, and the browser sends a **POST** to `create.php` with the form data.
+6. PHP reads `$_POST` into `$input` (`trim()` + `??`).
+7. `validate_request()` checks the input.
+   - **Errors:** PHP shows the form again with the messages and the user's values. Nothing is saved.
+   - **No errors:** go to step 8.
+8. `create_request()` runs the prepared **INSERT**, and MariaDB returns the new id.
+9. PHP sends a **302 redirect** to `index.php?created=ID`.
+10. The browser sends a **GET** for `index.php`, which shows the green message and the new row at the top.
+
+### GET vs POST
+
+| | GET | POST |
+|---|---|---|
+| Used for | Asking for a page or data (reading) | Sending data that changes something (saving) |
+| Where the data travels | In the URL (`?created=12`) | In the request body (not visible in the URL) |
+| Safe to refresh? | Yes, it just loads the page again | No, the browser re-sends the data (duplicates) |
+| Where we used it | Opening `create.php`, loading `index.php`, `?created=ID` | Submitting the form to `create.php` |
+
+### Two layers of protection
+**Interview answer:** Client-side checks are for convenience, server-side validation is for security and correctness, and database constraints are the final safety net.
+
+The dropdown and `required` are not enough, because the browser belongs to the user: with Inspect (DevTools) I could change the priority to `urgent` and a vehicle id to `999`, and the server received them. So PHP has to check every value, for example that the vehicle id is in our list of real vehicle ids.
+
+| Bad input | Caught by PHP validation? | Caught by the database? | What the user sees |
+|---|---|---|---|
+| Title of only spaces | Yes (`trim()` makes it `''`) | **No** (`NOT NULL` only blocks NULL, not an empty string) | "Title is required." |
+| Priority `urgent` | Yes | Yes, ENUM + strict mode (#1265) | "Please choose a valid priority." |
+| Vehicle `999` | Yes | Yes, the foreign key (#1452) | "Please choose a vehicle." |
+| Title over 150 characters | Yes | Yes, `VARCHAR(150)` + strict mode | "Title must be 150 characters or fewer." |
+
+MariaDB is the final destination, so the data that reaches it should already be correct. PHP validation also gives the user a clear message next to the right field and keeps what they typed. If only the database caught it, the user would get a generic 500 page and lose everything. And some bad input, like a blank title, the database doesn't catch at all.
+
+### Key concepts
+- **`value` vs the text shown in a dropdown:** the user sees the text ("2023 Toyota Camry …"), but the browser sends the `value` (the vehicle id, e.g. `2`).
+- **`$_SERVER['REQUEST_METHOD']`:** tells PHP whether this request is a `GET` (show the form) or a `POST` (handle the submitted form).
+- **`trim()` and `??`:** `trim()` removes spaces at both ends, so a title of only spaces becomes `''`. `$_POST['title'] ?? ''` uses `''` if the field wasn't sent, instead of an "Undefined array key" warning.
+- **`in_array(..., true)` and `!`:** `in_array()` answers "is this value in the list?" with true/false, and `true` makes it an exact (strict) match. `!` flips the answer, so `!in_array(...)` means "not in the list", which is when we add an error.
+- **The type trap (`'2'` vs `2`):** the form sends text (`'2'`), but PDO returns ids as numbers (`2`), and a strict comparison says they're different. Validation: convert the ids to text with `array_map('strval', ...)`. INSERT: convert the input to a number with `(int)`.
+- **Keeping the user's values after an error:** PHP prints the submitted values back into the form (`value="..."`, textarea content, `selected`). `e()` matters inside `value="..."`: without it, a `"` in the input could close the attribute and inject HTML.
+- **SQL injection:** user input that becomes part of the SQL command. If the title were glued into the SQL string, `x'); DROP TABLE vehicles; --` could run as commands.
+- **Prepared statements (`prepare` + `execute`):** `prepare()` sends the SQL with placeholders (`:title`), and `execute()` sends the values separately. The text is **not** changed; it's safe because MariaDB already finished reading the command before the values arrive, so they can only ever be data.
+- **"Prepared statements on the way in, escaping on the way out":** prepared statements protect the database when data goes **in** (SQL injection) by keeping values separate. `e()` protects the browser when data comes **out** (XSS) by converting characters like `<` into `&lt;`.
+- **Empty description → NULL:** NULL means "no value", which says "no description" more clearly than an empty string, and matches the schema (`TEXT NULL`).
+- **PHP is stateless:** PHP forgets everything after each request. `$input` only exists while one page is being built, so keeping the values after an error is not saving them.
+- **Post/Redirect/Get:** after saving, PHP replies with a **302** redirect (`header('Location: ...')`), and the browser loads `index.php` with a GET. Pressing F5 then repeats only the harmless GET, so no duplicate is created. `exit` after `header()` stops the script so nothing else runs. Headers must be sent before any output.
+- **`$_GET` and `(int)`:** `$_GET` reads values from the URL. The URL is user input too, so `(int)` turns anything that isn't a number (like `abc` or `<script>`) into `0`.
+- **Separation of concerns:** `src/vehicles.php` and `src/requests.php` = SQL only, `src/validation.php` = rules only, `create.php` and `index.php` = the pages (read input, call the functions, show the result).
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | Open the form (GET) | Empty form, 3 vehicles with VINs (newest first), Medium selected, no errors | 
+| 2 | Submit with a title of only spaces | "Title is required." under Title, nothing saved | 
+| 3 | DevTools: change priority to `urgent` | "Please choose a valid priority." | The value `urgent` reached the server, proving the browser can't be trusted |
+| 4 | DevTools: change a vehicle value to `999` | "Please choose a vehicle." | 
+| 5 | Error keeps values; title `"><b>hi</b>` | Vehicle, description and priority stay filled; the title shows as plain text, nothing turns bold | 
+| 6 | Save a valid request | Saved (#8), shows on `index.php` | 
+| 7 | Empty description | Description saved as NULL | #9 shows NULL in phpMyAdmin |
+| 8 | SQL injection: title `x'); DROP TABLE vehicles; --` | Saved as a normal title, `vehicles` table still exists | 
+| 9 | F5 after saving, before PRG | Browser asks to resubmit, creates a duplicate | #11 was a duplicate of #10 (the problem PRG fixes) |
+| 10 | F5 after saving, with PRG | No resubmit prompt, no duplicate | 
+| 11 | Network tab after submitting | `create.php` 302, then `index.php` 200 | 
+| 12 | `index.php?created=abc` | List loads with no message | `(int)` turned `abc` into 0 |
+
+### Problems I debugged
+
+
+**1. Missing `?>` → "unexpected token `<`"**
+- **Symptom:** parse error on the `<!DOCTYPE html>` line.
+- **Cause:** PHP was still in PHP mode when the HTML started.
+- **Fix:** added `?>` before the HTML to switch to HTML mode.
+
+### Habits learned
+- Test attacks on purpose (DevTools edits, SQL injection, XSS) to prove the defenses work.
+
+### Check yourself
+1. What would happen if `create.php` built the INSERT by gluing `$input['title']` into the SQL string?
+   - A title like `x'); DROP TABLE vehicles; --` would become part of the SQL and could run as commands (SQL injection). The prepared statement prevents this by sending the values separately. SQL is read before the data arrives. 
+2. Why does the form still need PHP validation if the vehicle is a dropdown?
+   - Because the browser can be edited: with DevTools a user can send any value (like `999`), so the server has to check that the id is a real vehicle.
+3. After an error, the form shows the user's values again. Is anything saved at that point? Why or why not?
+   - No. We only save when there are no errors. PHP just prints the submitted values back into the form for that one page, and then forgets them (PHP is stateless).
+4. Why does pressing F5 on `index.php?created=12` not create a duplicate?
+   - There's no "don't save duplicates" code. After saving, PHP redirects, so the last request is a GET of `index.php`, which only reads data. F5 repeats that GET, not the POST.
+
+### Objective
+When a user clicks "New request", `create.php` shows a form whose vehicle dropdown is built from the database. On submit, the browser POSTs the data, and PHP trims it and validates it on the server, because the browser can be edited. If anything is wrong, the form comes back with an error next to each field and the user's values kept. If it's valid, `create_request()` saves it with a prepared statement, so user input can never become SQL, and MariaDB's constraints act as a final safety net. Finally, PHP redirects to the list (Post/Redirect/Get), so refreshing can't create a duplicate, and the list shows a confirmation with the new row at the top.

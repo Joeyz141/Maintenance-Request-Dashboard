@@ -24,3 +24,27 @@ function get_all_requests(PDO $pdo): array
 
     return $stmt->fetchAll();
 }
+
+// Saves a new maintenance request and returns its new id.
+// Uses a prepared statement: the SQL and the user's values travel separately, so input can't become SQL.
+function create_request(PDO $pdo, array $data): int
+{
+    $sql = "
+        INSERT INTO maintenance_requests (vehicle_id, title, description, priority)
+        VALUES (:vehicle_id, :title, :description, :priority)
+    ";
+
+    // Step 1: send the SQL with blank placeholders; MariaDB plans the command before seeing any user text.
+    $stmt = $pdo->prepare($sql);
+
+    // Step 2: send the values; each one fills its placeholder as plain data.
+    $stmt->execute([
+        'vehicle_id'  => (int) $data['vehicle_id'],
+        'title'       => $data['title'],
+        'description' => $data['description'] === '' ? null : $data['description'],
+        'priority'    => $data['priority'],
+    ]);
+
+    // The id MariaDB just gave the new row (AUTO_INCREMENT).
+    return (int) $pdo->lastInsertId();
+}
