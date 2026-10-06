@@ -2,8 +2,12 @@
 // src/requests.php
 // Data access for maintenance requests: SQL only, no HTML in this file.
 
-function get_all_requests(PDO $pdo): array
+// TICKET 6: returns the requests (newest first), optionally filtered.
+// $filters comes from clean_request_filters(): ['q' => ..., 'status' => ..., 'priority' => ...], '' = no filter.
+// The default [] means "no filters", so old calls like get_all_requests($pdo) still work (Ticket 7's API will reuse this).
+function get_all_requests(PDO $pdo, array $filters = []): array
 {
+    // Part 1: the fixed start of the query (no WHERE and no ORDER BY yet; they are added below).
     $sql = "
         SELECT
             r.id,
@@ -18,9 +22,45 @@ function get_all_requests(PDO $pdo): array
         FROM maintenance_requests AS r
         JOIN vehicles AS v
             ON r.vehicle_id = v.id
-        ORDER BY r.created_at DESC, r.id DESC
     ";
-    $stmt = $pdo->query($sql);
+
+    // $where  = the conditions (SQL text WE wrote, with placeholders)
+    // $params = the values for those placeholders (the user's input, sent separately)
+    $where = [];
+    $params = [];
+
+    // Search: title OR VIN contains the text.
+    if (($filters['q'] ?? '') !== '') {
+        $where[] = '(r.title LIKE :q_title OR v.vin LIKE :q_vin)';
+        $params['q_title'] = '%' . $filters['q'] . '%';
+        $params['q_vin'] = '%' . $filters['q'] . '%';
+    }
+
+    // Status: exact match (already checked against the ENUM list by clean_request_filters()).
+    if (($filters['status'] ?? '') !== '') {
+        $where[] = 'r.status = :status';
+        $params['status'] = $filters['status'];
+    }
+
+    // Priority: exact match, already checked by clean_request_filters()).
+    if (($filters['priority'] ?? '') !== '') {
+        $where[] = 'r.priority = :priority';
+        $params['priority'] = $filters['priority'];
+    }
+
+    // Part 2: add WHERE only if at least one filter is active.
+    // implode() glues the conditions with ' AND ', e.g. "(r.title LIKE ...) AND r.status = :status".
+    //allows us to use multiple filters 
+    if (count($where) > 0) {
+        $sql .= ' WHERE ' . implode(' AND ', $where);
+    }
+
+    // Part 3: ORDER BY always comes last (after WHERE)
+    $sql .= ' ORDER BY r.created_at DESC, r.id DESC';
+
+    // prepared statement instead of query()
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 
     return $stmt->fetchAll();
 }

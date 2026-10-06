@@ -49,3 +49,33 @@ function validate_status_update(array $input): array
 
     return $errors;
 }
+
+// turns the raw URL values ($_GET) into safe filters for the request list.
+// Always returns all three keys; '' (empty) means "no filter" (show everything).
+// Forgiving on purpose: a bad value is ignored instead of showing an error, because a search can't damage data.
+function clean_request_filters(array $get): array
+{
+    // Start with "no filters at all"; each block below may fill one in.
+    $filters = ['q' => '', 'status' => '', 'priority' => ''];
+
+    // Search text: accept it only if the key exists AND is a string (?q[]=x would make it an array),
+    // then remove spaces at both ends and keep at most 100 characters.
+    if (isset($get['q']) && is_string($get['q'])) {
+        $filters['q'] = mb_substr(trim($get['q']), 0, 100);
+    }
+
+    // Status: same exists + string check, then keep it ONLY if it exactly matches an ENUM value in schema.sql.
+    // No else needed: a bad value (e.g. 'urgent' or 'OPEN') just leaves $filters['status'] as ''.
+    if (isset($get['status']) && is_string($get['status'])
+        && in_array($get['status'], ['open', 'in_progress', 'completed'], true)) {
+        $filters['status'] = $get['status'];
+    }
+
+    // Priority: same rule with the priority ENUM values.
+    if (isset($get['priority']) && is_string($get['priority'])
+        && in_array($get['priority'], ['low', 'medium', 'high'], true)) {
+        $filters['priority'] = $get['priority'];
+    }
+
+    return $filters;
+}
