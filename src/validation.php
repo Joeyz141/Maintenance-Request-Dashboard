@@ -31,3 +31,21 @@ function validate_request(array $input, array $vehicleIds): array
 
     return $errors;
 }
+
+// Checks the edit form's status and priority; an empty array means everything is valid.
+function validate_status_update(array $input): array
+{
+    $errors = [];
+
+    // Status: must exactly match one of the ENUM values in schema.sql.
+    if (!in_array($input['status'], ['open', 'in_progress', 'completed'], true)) {
+        $errors['status'] = 'Please choose a valid status.';
+    }
+
+    // Priority: must exactly match one of the ENUM values in schema.sql.
+    if (!in_array($input['priority'], ['low', 'medium', 'high'], true)) {
+        $errors['priority'] = 'Please choose a valid priority.';
+    }
+
+    return $errors;
+}
