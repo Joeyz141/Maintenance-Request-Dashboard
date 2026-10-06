@@ -18,7 +18,7 @@ function get_all_requests(PDO $pdo): array
         FROM maintenance_requests AS r
         JOIN vehicles AS v
             ON r.vehicle_id = v.id
-        ORDER BY r.created_at DESC, r.id DESC 
+        ORDER BY r.created_at DESC, r.id DESC
     ";
     $stmt = $pdo->query($sql);
 
@@ -47,4 +47,61 @@ function create_request(PDO $pdo, array $data): int
 
     // The id MariaDB just gave the new row (AUTO_INCREMENT).
     return (int) $pdo->lastInsertId();
+}
+
+// Returns one request (with its vehicle) by id, or false if no request has that id.
+// Used by edit.php: false means "not found", so the page can answer with a 404.
+function get_request_by_id(PDO $pdo, int $id): array|false
+{
+    $sql = "
+        SELECT
+            r.id,
+            r.title,
+            r.priority,
+            r.status,
+            r.updated_at,
+            v.vin,
+            v.make,
+            v.model,
+            v.model_year
+        FROM maintenance_requests AS r
+        JOIN vehicles AS v
+            ON r.vehicle_id = v.id
+        WHERE r.id = :id
+    ";
+
+    // Prepared statement: the id travels separately from the SQL, like in create_request().
+    $stmt = $pdo->prepare($sql);
+
+    // Only one value to send: $id is already a whole number (the int in the signature guarantees it), so no cast or cleanup is needed.
+    $stmt->execute([
+        'id' => $id,
+    ]);
+
+    // fetch() returns ONE row as an array, or false when no row matched.
+    // No ORDER BY needed: r.id is the primary key, so there is at most one row.
+    return $stmt->fetch();
+}
+
+// Changes the status and priority of ONE request (the one with this id); returns nothing.
+function update_request(PDO $pdo, int $id, array $data): void
+{
+    // WHERE id = :id limits the change to this one request; without it, EVERY row would change.
+    $sql = "
+        UPDATE maintenance_requests
+        SET status = :status, priority = :priority
+        WHERE id = :id
+    ";
+
+    // Prepared statement: the values travel separately from the SQL, so input can't become SQL.
+    $stmt = $pdo->prepare($sql);
+
+    // One value per placeholder; status and priority were already validated by validate_status_update().
+    $stmt->execute([
+        'status'   => $data['status'],
+        'priority' => $data['priority'],
+        'id'       => $id,
+    ]);
+
+    // No return value (void). If nothing actually changed, MariaDB reports 0 rows changed, and that is fine.
 }

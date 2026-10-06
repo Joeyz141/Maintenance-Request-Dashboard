@@ -18,6 +18,9 @@ try {
 // After a successful save, create.php redirects here with ?created=ID in the URL.
 // (int) turns anything that isn't a number into 0, so junk in the URL can't do anything.
 $createdId = (int) ($_GET['created'] ?? 0);
+
+// After a successful edit, edit.php redirects here with ?updated=ID (same (int) protection).
+$updatedId = (int) ($_GET['updated'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -38,6 +41,11 @@ $createdId = (int) ($_GET['created'] ?? 0);
         <p class="success">Request #<?= e($createdId) ?> was created.</p>
     <?php endif; ?>
 
+    <!-- Shows a confirmation only after edit.php redirected here with ?updated=ID. -->
+    <?php if ($updatedId > 0): ?>
+        <p class="success">Request #<?= e($updatedId) ?> was updated.</p>
+    <?php endif; ?>
+
     <!-- Link to the form for adding a new maintenance request. -->
     <p><a href="create.php">+ New request</a></p>
 
@@ -51,6 +59,8 @@ $createdId = (int) ($_GET['created'] ?? 0);
                 <th>Priority</th>
                 <th>Status</th>
                 <th>Created</th>
+                <!-- Extra column for the links that act on each row (Edit for now). -->
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -63,6 +73,10 @@ $createdId = (int) ($_GET['created'] ?? 0);
                     <td><?= e($request['priority']) ?></td>
                     <td><?= e($request['status']) ?></td>
                     <td><?= e($request['created_at']) ?></td>
+                    <!-- Edit link for THIS row: the row's id goes into the URL, e.g. edit.php?id=8.
+                         edit.php reads it back with $_GET['id'] and loads that one request.
+                         e() escapes the id like every other printed value (defense in depth). -->
+                    <td><a href="edit.php?id=<?= e($request['id']) ?>">Edit</a></td>
                 </tr>
             <?php endforeach; ?>
         </tbody>

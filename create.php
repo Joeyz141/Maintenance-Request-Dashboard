@@ -13,6 +13,7 @@ require __DIR__ . '/src/vehicles.php';  // get_all_vehicles(): SELECTs the vehic
 require __DIR__ . '/src/helpers.php';   // e(): escapes values before printing them in HTML
 require __DIR__ . '/src/validation.php'; // validation rules for a new maintenance request
 require __DIR__ . '/src/requests.php';  // create_request(): INSERTs a new request
+require __DIR__ . '/src/csrf.php';      // csrf_token(), csrf_check(): proves the POST came from this form
 
 // try/catch: "try this risky code; if it throws a PDOException, run the catch block".
 // Database code is risky: MySQL could be stopped, the password could be wrong, etc.
@@ -41,6 +42,9 @@ $input = [
 // Only handle form data when the form was submitted (POST).
 // A normal page visit is a GET, so this block is skipped and only the empty form is shown.
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // CSRF check FIRST: a POST without our secret token is stopped here with 403, before we read or save anything.
+    csrf_check();
+
     // Read each field from the form; ?? '' avoids warnings if a field is missing,
     // and trim() removes spaces at both ends.
     $input = [
@@ -71,6 +75,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// Get this browser's secret token now, BEFORE any HTML is printed (starting a session sends a cookie header).
+$csrfToken = csrf_token();
+
 // The closing PHP tag below switches from "PHP mode" to "HTML mode".
 ?>
 <!DOCTYPE html>
@@ -87,6 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- method="post": this form CHANGES data, so it uses POST (the data travels in the
          request body, not the URL). action="create.php": send it back to this same file -->
     <form method="post" action="create.php">
+        <!-- Hidden CSRF token: sent with the form so csrf_check() can prove the POST came from THIS page. -->
+        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
 
         <!-- VEHICLE: a dropdown built from the database rows -->
         <p>

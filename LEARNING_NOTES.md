@@ -365,3 +365,119 @@ MariaDB is the final destination, so the data that reaches it should already be 
 
 ### Objective
 When a user clicks "New request", `create.php` shows a form whose vehicle dropdown is built from the database. On submit, the browser POSTs the data, and PHP trims it and validates it on the server, because the browser can be edited. If anything is wrong, the form comes back with an error next to each field and the user's values kept. If it's valid, `create_request()` saves it with a prepared statement, so user input can never become SQL, and MariaDB's constraints act as a final safety net. Finally, PHP redirects to the list (Post/Redirect/Get), so refreshing can't create a duplicate, and the list shows a confirmation with the new row at the top.
+
+## Ticket 5: Update a Request's Status and Priority
+
+### Goal
+A user can now change the **status** and **priority** of an existing maintenance request from an edit page (`edit.php`). The title, vehicle and VIN are shown but can't be changed. Both forms that change data (create and edit) are now protected against CSRF with a secret token, on top of validation, prepared statements and `e()`.
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `src/requests.php` | changed | Added `get_request_by_id()`: returns **one** request (with its vehicle) as an array, or `false` if no request has that id. Added `update_request()`: prepares and executes an `UPDATE ... WHERE id = :id` that changes only that request's status and priority |
+| `src/validation.php` | changed | Added `validate_status_update()`: checks that status and priority exactly match the ENUM values. It returns an array of errors; an empty array means there are no errors. |
+| `src/csrf.php` | new | `csrf_token()` creates a secret (once per session) and returns it for a hidden form field. `csrf_check()` compares the token the form sent back with the session's copy, and stops with **403** if it's missing or different. |
+| `edit.php` | new | **GET:** loads one request by its id (`edit.php?id=8`) and shows its details with the status and priority dropdowns pre-selected. Wrong id → 404, database down → 500. **POST:** checks the CSRF token, reads and validates the two dropdowns, saves with `update_request()`, then redirects to `index.php?updated=8`. |
+| `index.php` | changed | Added an **Actions** column with an **Edit** link per row (`edit.php?id=N`), and a green "Request #N was updated." message after a save. (No CSRF here: the list only reads data.) |
+| `create.php` | changed | Added the same CSRF protection (`csrf_check()` + the hidden token), because creating a request is also a data-changing POST. |
+
+### How updating a request works
+1. On the list (`index.php`), the user clicks **Edit** on a row. The link is `edit.php?id=8`.
+2. The browser sends a **GET** for `edit.php?id=8`.
+3. PHP reads the id with `(int) ($_GET['id'] ?? 0)`. Junk like `abc` becomes `0`.
+4. `get_request_by_id()` loads that one request. No row → **404** "Request not found". Database error → **500**.
+5. PHP gets the CSRF token (`csrf_token()`) **before** printing any HTML, then shows the form: the request's details as plain text, the dropdowns pre-selected with the current values, and the hidden token.
+6. The user changes status and/or priority and clicks **Save changes**. The browser sends a **POST** to `edit.php?id=8` (the id stays in the URL through the form's `action`).
+7. `csrf_check()` runs first. A missing or wrong token → **403**, and nothing else runs.
+8. PHP reads `$_POST` into `$input` (`trim()` + `??`), and `validate_status_update()` checks it.
+   - **Errors:** the form comes back with a red message next to the field. Nothing is saved.
+   - **No errors:** go to step 9.
+9. `update_request()` runs the prepared `UPDATE ... WHERE id = 8`. MariaDB updates `updated_at` by itself.
+10. PHP sends a **302 redirect** to `index.php?updated=8`.
+11. The browser sends a **GET** for `index.php`, which shows the green message and the new values in the table.
+
+### UPDATE and WHERE
+```sql
+UPDATE maintenance_requests
+SET status = 'in_progress', priority = 'high'
+WHERE id = 8;
+```
+- Without the `WHERE` line, **every row** in the table would be changed to in_progress/high, and MariaDB would **not** show an error, just "N rows affected".
+- **SELECT-first habit:** before running an UPDATE by hand, run a SELECT with the same WHERE. The rows it returns are exactly the rows the UPDATE will change.
+- Columns not listed in `SET` stay the same, and `updated_at` changes by itself (`ON UPDATE CURRENT_TIMESTAMP` from Ticket 1).
+
+### 404, 500 and 403
+
+| Code | Meaning | When edit.php sends it |
+|---|---|---|
+| 404 Not Found | "What you asked for doesn't exist." The user's request is wrong. | `get_request_by_id()` returns `false`: `?id=999`, `?id=abc` (becomes 0) or no id |
+| 500 Server Error | "We broke." Our side failed. | A `PDOException`, e.g. MySQL is stopped |
+| 403 Forbidden | "I understood the request, but I refuse it." | `csrf_check()` finds a missing or wrong token |
+
+`?id=abc` gives a 404 and not a PHP error because `(int)` turns `abc` into `0` **before** the database sees it. No request has id 0, so `get_request_by_id()` returns `false` and our own `if` answers 404.
+
+### CSRF
+1. **The attack (Cross-Site Request Forgery):** another website (e.g. `funny-cats.com`) contains a hidden form that points at **our** `edit.php` or `create.php` and submits itself. The victim's browser sends it to our site, along with our session cookie. The data is valid, so validation alone would let it through, and a request gets changed or created without the user meaning to.
+2. **How the token stops it:** our form contains a secret token that our server created and stored in the session. On a POST, `csrf_check()` compares the token that came back with the session's copy. The attacker's page **can't read** our pages (the browser's same-origin policy), so it never learns the token, and its forged POST gets a 403.
+3. **What a session is:** the way PHP remembers a browser between requests, even though PHP is stateless. `session_start()` gives the browser a cookie with a random ID (like a coat-check ticket), and `$_SESSION` is the shelf on the server where we keep things for that ID, like the token.
+4. **CSRF vs XSS:** CSRF = another site makes **your browser submit our form**; the defense is the token. XSS = text in **our** page runs as code (like `<script>`); the defense is `e()` when printing. Different attacks, different defenses: `e()` doesn't stop CSRF.
+
+**Rule:** every POST that changes data gets a CSRF token, and every value printed into HTML goes through `e()`.
+
+### Key concepts
+- **Each table has its own primary key named `id`:** `r.id` is the request's own number, `v.id` the vehicle's, and `r.vehicle_id` is the foreign key that points at `v.id`. The aliases tell them apart.
+- **`fetch()` vs `fetchAll()`:** `fetchAll()` returns a list of rows; `fetch()` returns one row, or `false` if there's none. That's why the return type is `array|false`.
+- **Placeholder wiring:** the name in the SQL (`:id`) matches the key in `execute()` without the colon (`'id' => $id`).
+- **`int` in a signature vs `(int)`:** `int $id` in a function signature means PHP only lets a whole number in. `(int)` is a cast for **untrusted input** (like `$_GET`). It isn't needed on values that are already numbers or on query results.
+- **The form's `action` keeps the id:** `action="edit.php?id=8"` keeps the id in the URL, so the POST can still read `$_GET['id']` and the same load/404 code protects it.
+- **Only fields with a `name` are sent:** the title and VIN are plain text, not form fields, so they're never sent and can't be changed from this page, even with DevTools.
+- **`$input` starts from the database row:** on a GET, the dropdowns start on the current values; on a POST, `$input` is replaced with what the user picked.
+- **`void`:** a return type that means "returns nothing".
+- **Post/Redirect/Get again:** after saving, a 302 sends the browser to the list, so F5 repeats only the harmless GET.
+- **Headers before HTML:** `csrf_token()` starts the session, which sends a cookie header, so it has to run before any HTML is printed, like `header('Location: ...')`.
+- **Separation of concerns:** `requests.php` = SQL, `validation.php` = rules, `csrf.php` = the token, `edit.php` = the page.
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | Query A and B in phpMyAdmin on #8 | B changes only #8; `updated_at` changes by itself | low/open → high/in_progress, `updated_at` 10:24:35 → 14:22:14 |
+| 2 | `edit.php?id=8` | Form with the current status and priority selected | 
+| 3 | `?id=999`, `?id=abc`, no id | "Request not found", Network 404 | 404 for all three |
+| 4 | Valid save | Green "Request #8 was updated.", Network 302 → 200 | 
+| 5 | F5 on the list after saving | No resubmit prompt | 
+| 6 | Save without changing anything | Still redirects, no error | 
+| 7 | DevTools: status `urgent` / priority = a link | Red error message, 200, nothing saved | "Please choose a valid status/priority." |
+| 8 | Hidden token changed by one character | 403, nothing saved | 
+| 9 | Hidden token deleted | 403, nothing saved | 
+| 10 | Create form without a token | 403, no new row | 
+| 11 | Create form with an empty title | "Title is required.", typed values kept | 
+
+### Problems I debugged
+
+**1. VS Code saved old copies over new files**
+- **Symptom:** changes written to a file disappeared seconds later (four times).
+- **Cause:** VS Code had the files open with old content and saved them back over the new versions.
+- **Fix:** close all tabs (Ctrl+K W, Don't Save) before files are changed on disk, then reopen them.
+
+### Habits learned
+- Run a SELECT with the same WHERE before an UPDATE.
+- Ctrl+F a variable name to make sure it's spelled the same everywhere.
+- Close tabs before files are changed outside VS Code.
+- Network tab: tick **Preserve log**, and check the **Payload** tab to see exactly what the browser sent.
+
+### Check yourself
+1. What happens if the UPDATE has no WHERE?
+   - It doesn't fail: **every row** gets the new status and priority, and MariaDB shows no error, only "N rows affected".
+2. Why is a wrong id a 404 and not a 500?
+   - 404 means the thing asked for doesn't exist (the user's request is wrong); 500 means our server failed. A missing request isn't our failure, so our own `if` answers 404.
+3. Why can't the title or VIN be changed from the edit page, even with DevTools?
+   - They're plain text, not form fields, so they're never sent. And `update_request()` only ever updates status and priority.
+4. The attacker's page sends our session cookie along with its forged POST. Why does it still fail?
+   - The POST also needs the secret token in the form, and the attacker's page can't read our pages to learn it, so `csrf_check()` answers 403.
+5. Why does `create.php` need a CSRF token if `e()` already protects the list?
+   - `e()` only makes stored text safe to **display**. It doesn't decide whether a POST is **allowed**. A forged form with valid data would pass validation and create a fake request; only the token checks that the POST came from our form.
+
+### Objective
+When a user clicks "Edit" on the list, `edit.php` reads the id from the URL, turns it into a number, and loads that one request, answering 404 if it doesn't exist. It shows the request's details and two dropdowns pre-selected with the current status and priority, plus a hidden CSRF token. On submit, PHP first checks the token, so another website can't forge the form; then it validates both values against the ENUM lists and saves them with a prepared `UPDATE ... WHERE id = :id`, so only that one row changes and input can never become SQL. Finally, it redirects to the list (Post/Redirect/Get), which shows a confirmation, and every value is printed through `e()` to stop XSS.
