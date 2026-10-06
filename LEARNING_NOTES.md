@@ -481,3 +481,60 @@ WHERE id = 8;
 
 ### Objective
 When a user clicks "Edit" on the list, `edit.php` reads the id from the URL, turns it into a number, and loads that one request, answering 404 if it doesn't exist. It shows the request's details and two dropdowns pre-selected with the current status and priority, plus a hidden CSRF token. On submit, PHP first checks the token, so another website can't forge the form; then it validates both values against the ENUM lists and saves them with a prepared `UPDATE ... WHERE id = :id`, so only that one row changes and input can never become SQL. Finally, it redirects to the list (Post/Redirect/Get), which shows a confirmation, and every value is printed through `e()` to stop XSS.
+
+## Ticket 6: Search and Filter Requests
+
+### Goal
+The user can now filter the existing requests on the list page (`index.php`) by **status**, **priority** and a **search box** that matches the request's **title or the vehicle's VIN**. The filters are validated, turned into a safe database query, and only the matching requests come back from MariaDB.
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `index.php` | changed | Added a **GET** form with a search box and two dropdowns (status, priority), a **Filter** button and a **Clear** link. Clicking Filter makes the browser write the choices into the URL (`index.php?q=brake&status=open&priority=`). The page now requires `src/validation.php`, cleans the URL values with `clean_request_filters($_GET)`, passes them to `get_all_requests()`, keeps the chosen values in the form, and shows "No requests match your filters." when nothing matches. |
+| `src/validation.php` | changed | Added `clean_request_filters()`: always returns the three keys `q`, `status` and `priority`. `''` means "no filter" (show everything). The search text is trimmed and cut to 100 characters; status and priority must be an **exact** ENUM match, otherwise they're ignored. |
+| `src/requests.php` | changed | `get_all_requests()` now takes optional `$filters`. Each active filter adds a condition to `$where` and a value to `$params`. If there is **at least one** condition, **one** `WHERE` is added and the conditions are joined with `AND`; then `ORDER BY` goes last. It runs as a prepared statement. |
+
+### How filtering works
+1. The user opens `index.php`. The browser sends a **GET**, and with no filters the table shows every request.
+2. The user types in the search box and/or picks a status and priority, then clicks **Filter**.
+3. Because the form uses `method="get"`, the browser puts the choices in the URL and sends a new GET: `index.php?q=brake&status=in_progress&priority=`.
+4. PHP reads them from `$_GET`, and `clean_request_filters()` keeps only safe values (e.g. `status=urgent` becomes `''`).
+5. `get_all_requests($pdo, $filters)` builds the query: a condition for each active filter, joined with `AND` after one `WHERE`. The user's values travel separately as bound parameters.
+6. MariaDB returns only the matching rows.
+7. The page shows those rows, refills the form with the chosen values (through `e()`), or shows "No requests match your filters." **Clear** goes back to plain `index.php`.
+
+### GET for search
+- We're only **viewing** data, not changing it, so GET is the right method. Refreshing or repeating it can't hurt anything.
+- Because the filters live in the URL, a filtered view can be **bookmarked, refreshed or shared** with a coworker.
+- **No CSRF token is needed:** CSRF protects requests that change data. A forged search can only show someone a list. (`create.php` and `edit.php` change data, so they use POST + a token.)
+
+### LIKE and the dynamic WHERE
+- **`WHERE`** is where the conditions go; a row is returned only if they're true.
+- **`=`** means an exact match (used for status and priority). **`LIKE '%brake%'`** means "contains brake": `%` stands for any characters or none. It's case-insensitive here, so `BRAKE` also matches.
+- **`$where`** holds the conditions (SQL text **we** wrote, with placeholders). **`$params`** holds the user's values. They're kept separate, so typed text can never become SQL.
+- `implode(' AND ', $where)` glues the conditions with `AND` **between** them, and `WHERE` is only added if there's at least one condition. No filters = the original query.
+
+### Key concepts
+- **Forgiving vs strict validation:** a bad filter value is ignored (a search can't damage anything); create/edit stay strict and show errors.
+- **`''` means "no filter":** the "All" options have `value=""`, so "All" and "nothing chosen" are the same thing.
+- **`?? ''`:** "use `''` if the key is missing", so `get_all_requests($pdo)` without filters still works 
+- **`is_string()` first:** `?status[]=x` makes the value an array; checking it first stops `trim()`/`in_array()` from crashing.
+- **`:q_title` and `:q_vin`:** two placeholder names for the same text
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | No filters | All requests | all 10 rows |
+| 2 | Search `brake` / `BRAKE` | Only "Brake noise when stopping" | #1 for both |
+| 3 | Search `0001` (part of a VIN) | Requests for that vehicle | #2 and #1 (the F-150) |
+| 4 | In progress + High | Only rows with both | 8 rows |
+| 5 | `brake` + Completed | "No requests match your filters." | message shown |
+| 6 | Search `' OR 1=1 -- ` | Treated as text, no error | no match, no error |
+| 7 | `?status=urgent` in the URL | Ignored, all rows | all 10 rows |
+| 8 | Search `"><script>alert(1)</script>` | Shown as text in the box, no script runs | escaped by `e()` |
+| 9 | Values after clicking Filter, then Clear | Choices stay selected; Clear resets | as expected |
+
+### Objective
+On the list page, a GET form lets the user search by title or VIN and filter by status and priority; the browser puts the choices in the URL, so a filtered view can be refreshed, bookmarked or shared, and no CSRF token is needed because nothing changes. PHP first cleans the URL values with `clean_request_filters()`, ignoring anything that isn't a valid status, priority or text. `get_all_requests()` then builds the query from only the active filters: each one adds a condition to `$where` and a value to `$params`, the conditions are joined with `AND` after a single `WHERE`, and the values are sent separately in a prepared statement, so input can never become SQL. The page shows the matching rows, keeps the chosen values in the form through `e()`, and says "No requests match your filters." when nothing is found.

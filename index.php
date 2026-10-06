@@ -5,10 +5,16 @@
 require __DIR__ . '/src/db.php';
 require __DIR__ . '/src/requests.php';
 require __DIR__ . '/src/helpers.php';
+require __DIR__ . '/src/validation.php';   
+
+// read the filters from the URL (?q=...&status=...&priority=) and clean them.
+// result always has 3 keys; '' = no filter. 
+$filters = clean_request_filters($_GET);
 
 try {
     $pdo = get_db_connection();
-    $requests = get_all_requests($pdo);
+    // pass the cleaned filters; with all three '' this returns every request
+    $requests = get_all_requests($pdo, $filters);
 } catch (PDOException $e) {
     error_log('Failed to load requests: ' . $e->getMessage());
     http_response_code(500);
@@ -49,6 +55,49 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
     <!-- Link to the form for adding a new maintenance request. -->
     <p><a href="create.php">+ New request</a></p>
 
+    <!-- method="get" puts the choices in the URL, e.g. index.php?q=brake&status=open&priority=
+         GET is right here because filtering only READS data -->
+    <form method="get" action="index.php">
+        <!-- Search box: name="q" → ?q=... ; it will search the title OR the VIN. -->
+        <label>
+            Search
+            <!-- value="..." refills the box with what was searched.
+                 e() escapes it, because this is user input printed back into the page (XSS). -->
+            <input type="text" name="q" placeholder="Title or VIN" value="<?= e($filters['q']) ?>">
+        </label>
+
+        <!-- Status filter: name="status" → ?status=...
+             value="" (empty) means "no status filter": PHP will treat an empty value as "show all".
+             The other values match the ENUM in schema.sql exactly. -->
+        <label>
+            Status
+            <select name="status">
+                <!-- When the filter is '' none of them match, so the browser shows the first one ("All"). -->
+                <option value="">All statuses</option>
+                <option value="open" <?= $filters['status'] === 'open' ? 'selected' : '' ?>>Open</option>
+                <option value="in_progress" <?= $filters['status'] === 'in_progress' ? 'selected' : '' ?>>In progress</option>
+                <option value="completed" <?= $filters['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
+            </select>
+        </label>
+
+        <!-- Priority filter: When the filter is '' none of them match, so the browser shows the first one ("All"). --> 
+        <label>
+            Priority
+            <select name="priority">
+                <option value="">All priorities</option>
+                <option value="low" <?= $filters['priority'] === 'low' ? 'selected' : '' ?>>Low</option>
+                <option value="medium" <?= $filters['priority'] === 'medium' ? 'selected' : '' ?>>Medium</option>
+                <option value="high" <?= $filters['priority'] === 'high' ? 'selected' : '' ?>>High</option>
+            </select>
+        </label>
+
+        <!-- Submit: the browser builds the query string from the fields above and loads index.php?... -->
+        <button type="submit">Filter</button>
+
+        <!-- Clear: a plain link to index.php with NO query string, so every filter is reset. -->
+        <a href="index.php">Clear</a>
+    </form>
+
     <table>
         <thead>
             <tr>
@@ -79,6 +128,13 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
                     <td><a href="edit.php?id=<?= e($request['id']) ?>">Edit</a></td>
                 </tr>
             <?php endforeach; ?>
+
+            <!-- TICKET 6: empty state. If no row matched, say so instead of showing an empty table.-->
+            <?php if (count($requests) === 0): ?>
+                <tr>
+                    <td colspan="8">No requests match your filters.</td>
+                </tr>
+            <?php endif; ?>
         </tbody>
     </table>
 </body>
