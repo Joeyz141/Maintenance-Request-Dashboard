@@ -538,3 +538,85 @@ The user can now filter the existing requests on the list page (`index.php`) by 
 
 ### Objective
 On the list page, a GET form lets the user search by title or VIN and filter by status and priority; the browser puts the choices in the URL, so a filtered view can be refreshed, bookmarked or shared, and no CSRF token is needed because nothing changes. PHP first cleans the URL values with `clean_request_filters()`, ignoring anything that isn't a valid status, priority or text. `get_all_requests()` then builds the query from only the active filters: each one adds a condition to `$where` and a value to `$params`, the conditions are joined with `AND` after a single `WHERE`, and the values are sent separately in a prepared statement, so input can never become SQL. The page shows the matching rows, keeps the chosen values in the form through `e()`, and says "No requests match your filters." when nothing is found.
+
+## Ticket 7: JSON API for Maintenance Requests
+
+### Goal
+Other programs (JavaScript in Ticket 8, Python in Ticket 9) can now get the maintenance requests as **JSON** instead of an HTML page, through the URL `api/requests.php`. Every answer has a **status code**, a **Content-Type** label saying "this is JSON", and a **JSON body**, so the programs can read it easily, without digging through HTML.
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `api/requests.php` | new | A read-only JSON API. Each request goes through four checkpoints (GET only → is the id written correctly → ask the database → was it found). At the first checkpoint that fails, it sends that status code and an error message back to **whoever called the URL** (browser, JavaScript, Python); if everything passes, it sends 200 and the data. Every answer goes through `send_json()`. |
+
+**No existing file changed.** We reused the functions from earlier tickets: `get_db_connection()` (`src/db.php`), `clean_request_filters()` (`src/validation.php`), `get_all_requests()` and `get_request_by_id()` (`src/requests.php`). That's a good sign: the SQL and validation were already kept separate from the HTML, so a second "front door" (the API) could reuse them unchanged.
+
+### How the API works (the 4 checkpoints)
+A request walks through the checkpoints in order, and `send_json()` answers at the **first one it fails** (only once: its `exit` stops the script).
+
+1. **GET only:** is the request a GET? Anything else (POST, DELETE) gets **405** and an `Allow: GET` header. The API only reads data.
+2. **Read the URL:** the filters are cleaned with `clean_request_filters()` (search text trimmed, bad status/priority ignored). If there is an `?id`, `filter_var()` checks that it's **written correctly** (a positive whole number). `abc`, `0`, `-3`, `1.5` get **400**. No database is needed for this check.
+3. **Database:** if `$id` is `null` (no `?id` in the URL), get the whole filtered list with `get_all_requests()`; otherwise get one request with `get_request_by_id()`. If the database fails, the real error goes to the log and the client gets **500**.
+4. **Answer:** for one request, `false` means it doesn't exist (**404 "Request not found."**), otherwise **200** with the request. For the list, **200** with `{data, count, filters}` (an empty list is still 200).
+
+**Walkthrough for `?id=999`:** 1 (it's a GET ✓) → 2 (999 is written correctly ✓) → 3 (the database finds no row: `false`) → 4 (`false` → 404, stop). It gets all the way to checkpoint 4 because nothing was wrong with the request itself; only the database can say that request #999 doesn't exist.
+
+### HTML page vs JSON API
+- **`index.php`** sends **HTML**: a finished page for **people** to look at (dine-in: a plated meal).
+- **`api/requests.php`** sends **JSON**: just the data, for **programs** like JavaScript and Python (takeout: the same kitchen, but the food goes out in a labelled container and the customer serves it their own way).
+- **`api/requests.php` vs `src/requests.php`:** Python and JavaScript call **`api/requests.php`** with a URL over HTTP. That file then uses the query functions in **`src/requests.php`** with `require`. Only PHP files ever touch `src/`.
+
+### Status codes
+
+| Code | Meaning | When our API sends it | Example URL |
+|---|---|---|---|
+| 200 | OK, here is the data | The list (even if it's empty) or one request that exists | `?q=brake`, `?id=1` |
+| 400 | Bad Request: your input is invalid | `?id` is not a positive whole number | `?id=abc` |
+| 404 | Not Found: input is fine, but it doesn't exist | No request has that id | `?id=999` |
+| 405 | Method Not Allowed | Anything other than GET | a POST to `api/requests.php` |
+| 500 | Server Error: our side failed | The database connection or query failed | any URL while the DB is down |
+
+**Why is `?id=abc` a 400 but `?id=999` a 404?** `abc` can be rejected just by looking at it (it's written wrong), so we stop at checkpoint 2 without asking the database. `999` is written correctly, so we have to ask the database, and only then do we know it doesn't exist. edit.php shows a 404 for both because a person only needs "page not found", but an API should tell a program exactly what was wrong.
+
+### Key concepts
+- **JSON:** text in the shape `{"key": value}` (object) and `[ ... ]` (list) that any language can read. Text has quotes, numbers don't.
+- **`json_encode()`:** turns a PHP array into JSON text.
+- **Content-Type header:** the label on the response: `application/json; charset=utf-8`. Without it PHP says `text/html`.
+- **`send_json()` + `exit`:** one function packs every answer (status code + label + JSON body). Its `exit` stops the script, so an `if` that sends an answer doesn't need an `else`.
+- **`filter_var()` vs `(int)`:** `(int)"abc"` silently becomes `0`; `filter_var()` returns `false`, so we can tell "bad input" (400) apart from "not found" (404).
+- **The real error goes to the log:** `$e->getMessage()` can reveal the database user and server, which helps an attacker, so the client only gets a safe sentence.
+- **No CSRF token:** CSRF protects requests that **change** data; this API only reads.
+- **`nosniff`:** tells the browser to trust the JSON label, so a title like `<script>` is never treated as HTML.
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | No filters | 200, all requests | 200, count 10 |
+| 2 | `?q=brake` / `?q=0001` | Same results as index.php | #1 / #2 and #1 |
+| 3 | `?status=in_progress&priority=high` | Only rows with both | 8 rows |
+| 4 | `?status=urgent&priority=HIGH` | Ignored, all rows, `filters` shows `""` | 200, count 10 |
+| 5 | `?q=brake&status=completed` | 200 with an empty list (not an error) | count 0 |
+| 6 | `?id=1` | 200, one request; `id` and `model_year` are numbers | as expected |
+| 7 | `?id=999` | 404 | 404 "Request not found." |
+| 8 | `?id=abc`, `?id=`, `?id=0`, `?id=-3`, `?id=1.5`, `?id[]=1` | 400 | all 400 |
+| 9 | `?q[]=x&status[]=y` | No PHP warnings, still valid JSON | 200, valid JSON |
+| 10 | POST and DELETE | 405 + `Allow: GET` | as expected |
+| 11 | Database login fails (wrong DB_PASS) | 500, safe message, real error in Apache `error.log` | as expected; `?id=abc` still 400 |
+| 12 | Every response | `Content-Type: application/json; charset=utf-8` | as expected |
+| 13 | Regression: index, create, edit?id=1, edit?id=999 | 200, 200, 200, 404 | as expected |
+
+### Problems I debugged
+- **mysqladmin "Access denied":** to test the 500, I tried to stop MySQL with `mysqladmin -u root shutdown`. It didn't stop: the API still returned data, and the MySQL log showed it was still running. `ping` also failed, which first looked like "MySQL is off", but the real message was **Access denied**: the `root` account has a password I don't know (the password I tried belongs to the app user `maintenance_app`, not root). So neither command ever reached the server. **Lesson:** read the exact error text; "failed" can mean "off" or "not allowed in".
+
+### Habits learned
+- Check the **shape** of input before asking the database (cheaper, and gives a precise 400).
+
+### Check yourself
+- **Why does your API return JSON instead of HTML?** HTML is for people; JSON is for programs. JavaScript and Python can read JSON directly instead of digging values out of a page.
+- **What's the difference between a 400 and a 404?** 400 = the input is invalid (`?id=abc`); 404 = the input is fine but that request doesn't exist (`?id=999`).
+- **Why didn't you change any existing files?** The SQL and validation already lived in `src/` functions, so the API reused them. The HTML page and the API are two front doors to the same kitchen.
+
+### Objective
+I added a read-only JSON API, `api/requests.php`, so other programs (JavaScript in Ticket 8, Python in Ticket 9) can get the maintenance requests as data instead of an HTML page. It reuses the same functions as the HTML pages, so no existing file changed: `clean_request_filters()` for the `?q`, `?status` and `?priority` filters, `get_all_requests()` for the list, and `get_request_by_id()` for `?id=N`. Every request goes through four checkpoints (GET only → id written correctly → ask the database → found it) and gets exactly one answer from `send_json()`: a status code (200, 400, 404, 405 or 500), the `application/json` label, and a JSON body. A list comes back as `{data, count, filters}`, one request as `{data}`, and errors as `{error}`. Database errors are logged, never shown to the client, and no CSRF token is needed because the API only reads.
