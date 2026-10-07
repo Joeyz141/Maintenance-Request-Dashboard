@@ -6,6 +6,7 @@
 #                                 +--> analytics (Streamlit) --> web's JSON API
 #
 # Values like ${DB_APP_PASSWORD} come from deploy/.env (created on the server, never committed).
+# TZ: every container shows times in Pacific time (the server itself runs in UTC).
 
 name: maintenance-dashboard
 
@@ -15,6 +16,7 @@ services:
     image: mariadb:10.11
     restart: unless-stopped
     environment:
+      TZ: America/Los_Angeles     # NOW() / created_at shown in Pacific time
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?run start.sh to create deploy/.env}
       APP_DB_PASSWORD: ${DB_APP_PASSWORD:?run start.sh to create deploy/.env}
     volumes:
@@ -41,6 +43,7 @@ services:
     restart: unless-stopped
     environment:
       # Read by config/config.php with getenv(), exactly like .htaccess SetEnv locally.
+      TZ: America/Los_Angeles
       DB_HOST: db
       DB_PORT: "3306"
       DB_NAME: maintenance_dashboard
@@ -59,6 +62,8 @@ services:
       context: ..
       dockerfile: deploy/analytics/Dockerfile
     restart: unless-stopped
+    environment:
+      TZ: America/Los_Angeles     # "last refreshed" time on the dashboard
     depends_on:
       - web
 
