@@ -1,0 +1,84 @@
+# deploy/compose.yaml
+# Docker Compose = one file that describes all four containers and how they connect.
+# Started by deploy/start.sh:  docker compose -f deploy/compose.yaml up -d --build
+#
+#   internet --> caddy (80/443) --+--> web (PHP + Apache) --> db (MariaDB)
+#                                 +--> analytics (Streamlit) --> web's JSON API
+#
+# Values like ${DB_APP_PASSWORD} come from deploy/.env (created on the server, never committed).
+
+name: maintenance-dashboard
+
+services:
+  db:
+    # MariaDB, like XAMPP (10.11 = a long-term-support version).
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?run start.sh to create deploy/.env}
+      APP_DB_PASSWORD: ${DB_APP_PASSWORD:?run start.sh to create deploy/.env}
+    volumes:
+      # Named volume: the data survives restarts, reboots and rebuilds.
+      - db_data:/var/lib/mysql
+      # Scripts in this folder run ONCE, in name order, when db_data is empty.
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+      - ./db/03-demo-data.sql:/docker-entrypoint-initdb.d/03-demo-data.sql:ro
+      - ./db/04-app-user.sh:/docker-entrypoint-initdb.d/04-app-user.sh:ro
+    healthcheck:
+      # "Is the database ready?" web waits for this before starting.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    # No "ports:" -> the database is NOT reachable from the internet, only from web.
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      # Read by config/config.php with getenv(), exactly like .htaccess SetEnv locally.
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: maintenance_dashboard
+      DB_USER: maintenance_app
+      DB_PASS: ${DB_APP_PASSWORD}
+      # index.php's "View analytics dashboard" link.
+      ANALYTICS_URL: /analytics/
+      # php-production.ini: 1 = session cookie only over HTTPS.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-1}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  analytics:
+    build:
+      context: ..
+      dockerfile: deploy/analytics/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - web
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # HTTPS certificates (kept, so we don't ask Let's Encrypt every boot)
+      - caddy_config:/config
+    depends_on:
+      - web
+      - analytics
+
+volumes:
+  db_data:
+  caddy_data:
+  caddy_config:

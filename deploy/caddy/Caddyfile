@@ -1,0 +1,29 @@
+# deploy/caddy/Caddyfile
+# Caddy = the front door. It is the only container open to the internet (ports 80 + 443).
+# It gets a free HTTPS certificate from Let's Encrypt automatically and sends each
+# visitor to the right container.
+
+# SITE_ADDRESS comes from deploy/.env (written by start.sh), e.g. 54-12-34-56.sslip.io
+# (HTTPS) or :80 (plain HTTP fallback).
+{$SITE_ADDRESS}
+
+# Compress responses.
+encode gzip
+
+# A few security headers for every response.
+header {
+	X-Content-Type-Options nosniff
+	X-Frame-Options SAMEORIGIN
+	Referrer-Policy strict-origin-when-cross-origin
+	-Server
+}
+
+# /analytics and everything under it -> Streamlit (websockets are passed through automatically).
+handle /analytics* {
+	reverse_proxy analytics:8501
+}
+
+# Everything else -> PHP + Apache.
+handle {
+	reverse_proxy web:80
+}
