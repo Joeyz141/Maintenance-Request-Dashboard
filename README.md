@@ -3,6 +3,12 @@
 A portfolio project focused on learning AI-assisted software development
 through the development of a maintenance request management feature.
 
+**Live demo:** https://32-190-224-231.sslip.io
+(analytics dashboard: https://32-190-224-231.sslip.io/analytics/)
+
+The demo runs on an AWS EC2 server that is switched on for demos, so the link may be offline at other times.
+It uses fictional data and has no login, so please don't enter real information.
+
 ## Objective
 
 Develop a focused internal maintenance request management feature that
@@ -17,6 +23,7 @@ allows users to create, view, search, filter, and update maintenance requests.
 - **JSON API** (`api/requests.php`) used by the JavaScript front end and the Python dashboard
 - **Analytics dashboard** (Python, Streamlit + Plotly): summary cards, charts, table, CSV download
 - **Automated tests**: PHPUnit and pytest (see [TESTING.md](TESTING.md))
+- **Deployed** on AWS EC2 with Docker Compose and HTTPS (see [DEPLOY.md](DEPLOY.md))
 
 ## Architecture
 
@@ -86,6 +93,14 @@ python -m pytest
 
 What they cover, and the manual checklist for everything else: [TESTING.md](TESTING.md).
 
+## Deployment
+
+The live demo runs as four Docker containers on one AWS EC2 server:
+Caddy (HTTPS + routing), PHP + Apache, Streamlit, and MariaDB.
+Setup is automated: an EC2 user-data script installs Docker and clones this repository,
+and `deploy/start.sh` runs at every boot (`git pull` + `docker compose up`), so a reboot deploys the latest `main`.
+Details, costs and design choices: [DEPLOY.md](DEPLOY.md).
+
 ## Security notes
 
 - Every database query uses **prepared statements** (no user input inside SQL text).
@@ -93,7 +108,8 @@ What they cover, and the manual checklist for everything else: [TESTING.md](TEST
 - Forms that change data are protected with a **CSRF token**; the session cookie is `HttpOnly` and `SameSite=Lax`.
 - The app connects as a **least-privilege** database user (SELECT, INSERT, UPDATE, DELETE only).
 - Secrets come from **environment variables**, never from committed files.
-- Before any public deployment: turn PHP's `display_errors` off (XAMPP shows errors on the page for development), serve over HTTPS and add the `Secure` cookie flag, and add authentication (the app has no login yet).
+- The live deployment hides PHP errors from visitors (`display_errors` off), serves everything over **HTTPS** with a `Secure` session cookie, blocks `src/` and `config/` in the browser, and keeps the database off the internet. Database passwords are generated on the server and never committed.
+- Not done yet: authentication (the app has no login), so the demo uses fictional data only.
 
 ## Technologies
 
@@ -104,6 +120,8 @@ What they cover, and the manual checklist for everything else: [TESTING.md](TEST
 - JavaScript
 - Python (pandas, Plotly, Streamlit)
 - PHPUnit, pytest
+- Docker & Docker Compose, Caddy
+- AWS (EC2, Elastic IP)
 - Git & GitHub
 - Claude / Claude Code
 
