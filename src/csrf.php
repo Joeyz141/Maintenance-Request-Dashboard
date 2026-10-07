@@ -9,6 +9,12 @@ function start_session_once(): void
 {
     // session_status() tells us if the session is already active, so we never start it twice.
     if (session_status() !== PHP_SESSION_ACTIVE) {
+        // Cookie safety settings (Ticket 10); they must be set BEFORE session_start():
+        //   httponly => true   JavaScript can't read the session cookie (document.cookie), so an XSS bug couldn't steal it
+        //   samesite => 'Lax'  the browser won't send the cookie with a POST that starts on another website
+        //                      (a second lock on top of the CSRF token)
+        session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
+
         // Gives the browser a cookie with a random session ID (the "coat-check ticket") and opens $_SESSION.
         session_start();
     }

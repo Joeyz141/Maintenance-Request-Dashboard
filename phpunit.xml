@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- phpunit.xml: settings for "vendor\bin\phpunit" (run it from the project folder).
+     bootstrap      = load Composer's autoloader first (it knows where the PHPUnit classes are)
+     cacheDirectory = where PHPUnit keeps notes between runs (gitignored)
+     testsuite      = which folder holds our PHP tests -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true">
+    <testsuites>
+        <testsuite name="PHP unit tests">
+            <directory>tests/php</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

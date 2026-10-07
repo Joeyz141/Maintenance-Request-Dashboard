@@ -8,14 +8,102 @@ through the development of a maintenance request management feature.
 Develop a focused internal maintenance request management feature that
 allows users to create, view, search, filter, and update maintenance requests.
 
-## Planned Technologies
+## Features
+
+- **List** every maintenance request with its vehicle (newest first)
+- **Create** a request (validated, CSRF-protected, Post/Redirect/Get)
+- **Update** a request's status and priority
+- **Search** by title or VIN and **filter** by status and priority, without a page reload (JavaScript + `fetch()`), and still working with JavaScript turned off
+- **JSON API** (`api/requests.php`) used by the JavaScript front end and the Python dashboard
+- **Analytics dashboard** (Python, Streamlit + Plotly): summary cards, charts, table, CSV download
+- **Automated tests**: PHPUnit and pytest (see [TESTING.md](TESTING.md))
+
+## Architecture
+
+```
+Browser ──HTTP──> Apache + PHP ──PDO──> MySQL (MariaDB)
+  │  index.php, create.php, edit.php        maintenance_dashboard
+  │  js/dashboard.js ──fetch──> api/requests.php (JSON)
+  │                                  ▲
+Streamlit dashboard (Python, :8501) ─┘ requests.get()
+```
+
+| Folder / file | Responsibility |
+|---|---|
+| `index.php`, `create.php`, `edit.php` | Pages: read input, call the functions below, print HTML |
+| `api/requests.php` | JSON API (GET only): list, filters, one request by `?id=` |
+| `src/` | Shared PHP: `db.php` (connection), `requests.php` / `vehicles.php` (SQL), `validation.php` (rules + allowed values), `csrf.php`, `helpers.php` (`e()` escaping) |
+| `js/dashboard.js` | Live search and filtering with `fetch()` |
+| `reports/` | Python: `maintenance_data.py` (API call + pandas analysis + charts), `dashboard.py` (Streamlit page) |
+| `database/` | `schema.sql` (tables), `seed.sql` (fictional sample data), `create_app_user.sql` (least-privilege DB user) |
+| `tests/` | `php/` (PHPUnit) and `python/` (pytest) |
+
+## Running it locally (Windows + XAMPP)
+
+**Requirements:** XAMPP with PHP 8.2+ and MariaDB/MySQL, Git, Python 3.12+, Composer (for the PHP tests).
+
+1. Clone the repository into `C:\xampp\htdocs\maintenance-dashboard`.
+2. Start **Apache** and **MySQL** in the XAMPP Control Panel.
+3. Create the database in phpMyAdmin (SQL tab) by running, in order:
+   `database/schema.sql`, `database/seed.sql`, then `database/create_app_user.sql`
+   (in that last file, replace `CHANGE_ME` with a password of your choice, but don't commit it).
+4. Copy `.htaccess.example` to `.htaccess` and put the same password in `SetEnv DB_PASS`.
+   `.htaccess` is gitignored, so the password never reaches GitHub.
+5. Open http://localhost/maintenance-dashboard/
+
+### Settings (environment variables)
+
+| Variable | Used by | Default |
+|---|---|---|
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` | PHP (`config/config.php`) | `localhost`, `3306`, `maintenance_dashboard`, `maintenance_app` |
+| `DB_PASS` | PHP | *(none; set it in `.htaccess`)* |
+| `ANALYTICS_URL` | `index.php` link | `http://localhost:8501` |
+| `API_URL` | Python dashboard | `http://localhost/maintenance-dashboard/api/requests.php` |
+
+## Running the analytics dashboard
+
+From the project folder, in PowerShell (Apache and MySQL running):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r reports\requirements.txt
+python -m streamlit run reports\dashboard.py
+```
+
+Then open http://localhost:8501 (or use **View analytics dashboard** on the home page).
+The port is fixed in `.streamlit/config.toml`; if 8501 is taken, Streamlit stops with an error instead of moving to another port.
+
+## Running the tests
+
+```powershell
+# PHP (once: composer install)
+vendor\bin\phpunit
+
+# Python (venv on; once: python -m pip install -r reports\requirements-dev.txt)
+python -m pytest
+```
+
+What they cover, and the manual checklist for everything else: [TESTING.md](TESTING.md).
+
+## Security notes
+
+- Every database query uses **prepared statements** (no user input inside SQL text).
+- Every value printed into HTML goes through `e()` (`htmlspecialchars`) against **XSS**; the JavaScript uses `textContent`, never `innerHTML`.
+- Forms that change data are protected with a **CSRF token**; the session cookie is `HttpOnly` and `SameSite=Lax`.
+- The app connects as a **least-privilege** database user (SELECT, INSERT, UPDATE, DELETE only).
+- Secrets come from **environment variables**, never from committed files.
+- Before any public deployment: turn PHP's `display_errors` off (XAMPP shows errors on the page for development), serve over HTTPS and add the `Secure` cookie flag, and add authentication (the app has no login yet).
+
+## Technologies
 
 - PHP
-- MySQL
+- MySQL (MariaDB)
 - HTML
 - CSS
 - JavaScript
-- Python
+- Python (pandas, Plotly, Streamlit)
+- PHPUnit, pytest
 - Git & GitHub
 - Claude / Claude Code
 

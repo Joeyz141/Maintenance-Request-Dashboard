@@ -1,5 +1,5 @@
 -- database/schema.sql
--- Creates the maintenace dashboard database and its tables
+-- Creates the maintenance dashboard database and its tables
 
 CREATE DATABASE IF NOT EXISTS maintenance_dashboard
     CHARACTER SET utf8mb4 

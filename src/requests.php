@@ -2,9 +2,10 @@
 // src/requests.php
 // Data access for maintenance requests: SQL only, no HTML in this file.
 
-// TICKET 6: returns the requests (newest first), optionally filtered.
+// Returns the requests (newest first), optionally filtered.
 // $filters comes from clean_request_filters(): ['q' => ..., 'status' => ..., 'priority' => ...], '' = no filter.
-// The default [] means "no filters", so old calls like get_all_requests($pdo) still work (Ticket 7's API will reuse this).
+// The default [] means "no filters", so get_all_requests($pdo) alone returns every request.
+// Used by index.php (the HTML page) and api/requests.php (the JSON API).
 function get_all_requests(PDO $pdo, array $filters = []): array
 {
     // Part 1: the fixed start of the query (no WHERE and no ORDER BY yet; they are added below).
@@ -42,7 +43,7 @@ function get_all_requests(PDO $pdo, array $filters = []): array
         $params['status'] = $filters['status'];
     }
 
-    // Priority: exact match, already checked by clean_request_filters()).
+    // Priority: exact match (already checked by clean_request_filters()).
     if (($filters['priority'] ?? '') !== '') {
         $where[] = 'r.priority = :priority';
         $params['priority'] = $filters['priority'];
