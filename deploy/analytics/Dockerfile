@@ -4,6 +4,9 @@
 # pandas 3 needs Python 3.11+. "slim" = smaller Debian image.
 FROM python:3.12-slim
 
+# tzdata = the time zone database, so TZ=America/Los_Angeles (compose.yaml) works.
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
+
 # Don't run the app as root inside the container.
 RUN useradd --create-home app
 WORKDIR /app
