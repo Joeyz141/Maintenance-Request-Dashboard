@@ -38,6 +38,10 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
         th, td { border: 1px solid #999; padding: 6px 10px; text-align: left; }
         .success { color: #1b7a1b; }
     </style>
+
+    <!-- loads our JavaScript. defer = download it now, but run it only AFTER the whole
+         HTML below has been read, so the ids it looks for (filter-form, requests-body, ...) exist -->
+    <script src="js/dashboard.js" defer></script>
 </head>
 <body>
     <h1>Maintenance Requests</h1>
@@ -57,7 +61,9 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
 
     <!-- method="get" puts the choices in the URL, e.g. index.php?q=brake&status=open&priority=
          GET is right here because filtering only READS data -->
-    <form method="get" action="index.php">
+    <!-- id="filter-form" is the name tag JS uses to find this form and catch its submit.
+         method/action stay, so the form still works with JS turned off. -->
+    <form method="get" action="index.php" id="filter-form">
         <!-- Search box: name="q" → ?q=... ; it will search the title OR the VIN. -->
         <label>
             Search
@@ -98,6 +104,10 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
         <a href="index.php">Clear</a>
     </form>
 
+    <!-- empty on purpose. JS writes messages here ("Loading...", "10 requests", or an error).
+         aria-live="polite" makes screen readers announce the new text when it changes. -->
+    <p id="status-message" aria-live="polite"></p>
+
     <table>
         <thead>
             <tr>
@@ -112,7 +122,8 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
                 <th>Actions</th>
             </tr>
         </thead>
-        <tbody>
+        <!-- id="requests-body" lets JS find the rows and replace them with new ones. -->
+        <tbody id="requests-body">
             <?php foreach ($requests as $request): ?>
                 <tr>
                     <td><?= e($request['id']) ?></td>
@@ -129,7 +140,7 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
                 </tr>
             <?php endforeach; ?>
 
-            <!-- TICKET 6: empty state. If no row matched, say so instead of showing an empty table.-->
+            <!-- empty state. If no row matched, say so instead of showing an empty table.-->
             <?php if (count($requests) === 0): ?>
                 <tr>
                     <td colspan="8">No requests match your filters.</td>
