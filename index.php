@@ -27,6 +27,11 @@ $createdId = (int) ($_GET['created'] ?? 0);
 
 // After a successful edit, edit.php redirects here with ?updated=ID (same (int) protection).
 $updatedId = (int) ($_GET['updated'] ?? 0);
+
+// Where the Streamlit analytics dashboard lives (Ticket 9).
+// getenv() reads ANALYTICS_URL (set it in .htaccess, like DB_PASS); ?: uses the local default if it isn't set.
+// On AWS we only change the setting, e.g. to /analytics. No code change.
+$analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -56,8 +61,15 @@ $updatedId = (int) ($_GET['updated'] ?? 0);
         <p class="success">Request #<?= e($updatedId) ?> was updated.</p>
     <?php endif; ?>
 
-    <!-- Link to the form for adding a new maintenance request. -->
-    <p><a href="create.php">+ New request</a></p>
+    <!-- Link to the form for adding a new maintenance request,
+         and to the analytics dashboard (a separate Streamlit app, opens in a new tab).
+         e() escapes the URL, because it comes from a setting, not from our code.
+         rel="noopener" stops the new tab from controlling this page (security habit with target="_blank"). -->
+    <p>
+        <a href="create.php">+ New request</a>
+        |
+        <a href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">View analytics dashboard</a>
+    </p>
 
     <!-- method="get" puts the choices in the URL, e.g. index.php?q=brake&status=open&priority=
          GET is right here because filtering only READS data -->

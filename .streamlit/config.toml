@@ -1,0 +1,9 @@
+# .streamlit/config.toml
+# Streamlit settings for this project. Streamlit reads this file when you run
+# "python -m streamlit run reports\dashboard.py" from the project folder.
+
+[server]
+# Always use port 8501, the address the "View analytics dashboard" link on index.php points to.
+# Because the port is set here, Streamlit STOPS with an error if 8501 is already taken,
+# instead of quietly moving to 8502 (which would make the link open the wrong app).
+port = 8501

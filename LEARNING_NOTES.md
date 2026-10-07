@@ -696,3 +696,101 @@ Now our `index.php` dashboard does not need to reload the entire page when filte
 
 ### Objective
 The objective was to make the dashboard's filters work without a page reload. `js/dashboard.js` catches the form's submit, builds the query string with `URLSearchParams`, and talks to the JSON API through `fetch()`, which calls `api/requests.php`, which uses the SQL in `src/requests.php`. It checks `response.ok` (because `fetch` doesn't fail on 404/500) and uses `try/catch` for network and JSON errors, then redraws only the table rows with `textContent`, so data can never run as HTML. The URL stays in sync with `pushState`, Back/Forward work through `popstate`, and live search waits for a 300 ms pause (debounce) with a race guard so old answers can't overwrite new ones. `index.php` only got ids and a deferred script tag, so without JavaScript it still works the PHP way.
+
+## Ticket 9: Python Analytics Dashboard (Plotly + Streamlit)
+
+### Goal
+The goal is to use Python as a data tool that shows the maintenance team, in charts and numbers, what is happening with their maintenance requests. It's a live dashboard: the team can filter it, see what is urgent and how long requests have been waiting, and download the data (CSV) or a chart (PNG).
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `reports/maintenance_data.py` | new | The "engine" of our Python files. It fetches the data from the JSON API (`load_requests()`), turns the JSON response into a list of Python dictionaries and then into a pandas DataFrame (`requests_to_dataframe()`), analyzes it (counts, status × priority, per make, summary numbers) and builds the Plotly charts for the dashboard to use. Every way the API call can fail becomes one `ApiError` with a message for people. |
+| `reports/dashboard.py` | new | The Streamlit page (`localhost:8501`). One sidebar with 3 filters (status, priority, make), a Refresh button and auto-refresh; the main page has 4 number cards, 2 interactive charts, a table and a Download CSV button. |
+| `reports/requirements.txt` | new | The 4 libraries we use, with exact versions (requests, pandas, plotly, streamlit). A recipe: `pip install -r reports/requirements.txt` rebuilds the same setup (Docker on AWS will use it too). |
+| `.streamlit/config.toml` | new | Pins Streamlit to port 8501 (the address the link points to). If 8501 is taken, Streamlit stops with an error instead of quietly moving to 8502 ("fail loudly"). |
+| `index.php` | changed | Added a "View analytics dashboard" link (new tab) so users can reach Streamlit. The address comes from the `ANALYTICS_URL` setting, with `http://localhost:8501` as the default. |
+| `.htaccess.example` | changed | Documents the optional `SetEnv ANALYTICS_URL` setting. |
+| `api/requests.php` | not changed | No change needed: the Ticket 7 API already answers any client (JS or Python) with the filtered requests as JSON. |
+
+### How the dashboard gets its data
+1. The user changes a filter (or clicks Refresh). **Streamlit re-runs the whole script** from top to bottom.
+2. `get_data(status, priority)` is called. If the same filters were asked for in the last **10 seconds**, the **cache** answers right away and nothing else runs.
+3. Otherwise `load_requests()` calls `requests.get(API_URL, params=..., timeout=10)`, which asks `api/requests.php?status=...&priority=...`.
+4. `api/requests.php` cleans the filters, `src/requests.php` runs the SQL, and the API answers with the **JSON envelope** `{"data": [...], "count": ..., "filters": ...}`.
+5. Python checks the answer (status code, JSON, `data` key), turns the JSON into a list of dictionaries, and `requests_to_dataframe()` builds the **DataFrame** (real dates + `days_open`).
+6. The make filter is applied in pandas (the API has no make filter).
+7. `summary()` gives the 4 cards; `status_priority_chart()` and `make_chart()` return the 2 Plotly figures; `st.dataframe` shows the table and `st.download_button` the CSV.
+
+So changes made on `index.php` show up on the next run: right away with Refresh, within 10 s on any click, or within 30 s with auto-refresh on.
+
+### Error handling
+
+| Problem | What the user sees |
+|---|---|
+| Apache is off | No answer at all (no status code). Red box: "Could not reach the API at ... Is Apache running in XAMPP?" |
+| The API answers 404 or 500 | "The API answered with status 404." / "...status 500. The maintenance requests could not be loaded right now." (the API's own safe message) |
+| The answer isn't JSON | "The API did not answer with JSON. Check that API_URL points to api/requests.php." |
+| The API takes longer than 10 seconds | "The API took longer than 10 seconds to answer. Try again in a moment." |
+| No request matches the filters | Not an error (the API answers 200 with an empty list). The cards show 0 and a blue "No requests match these filters." message. |
+
+All the library errors become **one** error type, `ApiError`, so the dashboard only has to catch one thing and every message is written for people, not programmers. `st.stop()` ends that run of the script, so the user sees the filters and the red message instead of a half-drawn page. Errors are not cached, so the next click tries again.
+
+### Key concepts
+- **venv + requirements.txt:** a venv is the project's own toolbox (its own Python + libraries in `.venv`); `requirements.txt` is the recipe to rebuild it anywhere.
+- **`requests.get(..., params=..., timeout=10)`:** Python's `fetch()`. `params` builds the `?status=...` query string, `timeout` stops it from waiting forever.
+- **`raise_for_status()` / `response.ok`:** like `fetch`, `requests` does not fail on a 404 or 500, so we check the status code ourselves.
+- **DataFrame + `pd.to_datetime`:** a table in memory (like a phpMyAdmin result); `to_datetime` turns date text into real dates so we can compute `days_open`.
+- **`value_counts` / `crosstab` (and their SQL twins):** `value_counts` = `GROUP BY status, COUNT(*)`; `crosstab` = `GROUP BY status, priority` laid out as a grid.
+- **Boolean mask + `.isin()`:** one True/False per row; `df[mask]` keeps the True rows (pandas' `WHERE`). `.isin()` is pandas' `in_array()`.
+- **wide vs long data (`melt`):** a grid is easy to read (wide); Plotly wants one row per bar piece (long). `melt()` converts wide → long.
+- **A function that returns a Plotly figure (instead of showing it):** the figure is the chart's recipe in memory; the caller decides where it appears (`fig.show()` in a test, `st.plotly_chart()` on the dashboard).
+- **Streamlit re-runs the whole script:** every click redraws the page from top to bottom, like Flutter's `build()` after `setState`.
+- **`@st.cache_data(ttl=10)`:** remembers the API answer for 10 seconds, so clicks don't call the API every time.
+- **`@st.fragment(run_every=30)`:** re-runs only the main part of the page every 30 seconds (auto-refresh).
+- **Environment variables (`API_URL`, `ANALYTICS_URL`):** settings outside the code with localhost defaults; on AWS we change the setting, not the code.
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | "View analytics dashboard" link on `index.php` | Opens the dashboard in a new tab | as expected |
+| 2 | Apache off → Refresh data | Red "Is Apache running in XAMPP?" box, no cards or charts | as expected |
+| 3 | Apache off → `python reports\maintenance_data.py` | One-line `Error: ...`, exit code 1 | as expected |
+| 4 | Apache back on → Refresh | Data comes back | as expected |
+| 5 | Wrong `API_URL` | `The API answered with status 404.` | as expected |
+| 6 | `API_URL` removed | 10 requests | as expected |
+| 7 | Edit #9 on `index.php` → Refresh | Cards and charts change | Unfinished 9 → 8, #9 moved to the Completed bar (then set back to open) |
+| 8 | Dashboard vs SQL `GROUP BY status, priority` | Same numbers | in_progress/high 8, open/medium 1, completed/low 1 |
+| 9 | Filters: In progress / In progress + Honda / In progress + Low | 8 / 4 / "No requests match these filters." | as expected |
+| 10 | Download CSV + camera (PNG) on a chart | A .csv that opens in Excel, a .png image | as expected |
+
+### Problems I debugged
+- **Libraries installed in the wrong place:** `pip --version` showed `...\Python313\...`, not `.venv`. Cause: the venv wasn't active, so the first install went to the global Python. Fix: activate the venv and check with `python -m pip --version` / `sys.prefix`.
+- **The link opened the Streamlit demo / "Port 8501 is not available":** the old `streamlit hello` was still holding port 8501. Fix: find it with `Get-NetTCPConnection -LocalPort 8501`, stop that one process with `Stop-Process -Id` (my own PID, not the example number).
+
+### Habits learned
+- Check WHICH Python/pip is running (`python -m pip --version`) before trusting an install.
+- Fail loudly: a clear error now beats a quiet wrong result later (port 8501).
+
+### Check yourself
+- **Why does Python call `api/requests.php` instead of connecting to MySQL directly?**
+  Python could connect to MySQL directly (with a MySQL library), but going through the API reuses the PHP filter checks and SQL, keeps the database password out of Python, and leaves one gatekeeper in front of the database.
+- **Why do we commit `requirements.txt` but not `.venv`?**
+  We commit it so GitHub users can see which libraries the project needs, and so anyone (or Docker) can rebuild the same setup. `.venv` is huge, tied to my PC's paths, and can be rebuilt from `requirements.txt`.
+- **Why `timeout=10`?**
+  Without it, Python will remain waiting forever if the server hangs, so we set a 10-second limit.
+- **Why `columns=COLUMNS` in `pd.DataFrame(...)`?**
+  So when an empty result is returned, we still have a table with all the columns and 0 rows, and the code after it doesn't crash.
+- **Why `isin(UNFINISHED)` instead of `!= "completed"`? When would they give different answers?**
+  `isin` uses the `UNFINISHED` list set earlier, so it names exactly which statuses count as unfinished. They give different answers if a new status is added later (e.g. "cancelled"): `!= "completed"` would count it as unfinished, `isin` would not.
+- **Why do the chart functions `return fig` instead of calling `fig.show()`?**
+  We return a Plotly figure object (not an image) so the caller decides where to show it: a browser tab in the test, `st.plotly_chart` on the dashboard. It becomes a PNG only when someone clicks the camera.
+- **What would happen without `@st.cache_data` each time someone clicks "Download CSV"?**
+  Streamlit re-runs the whole script on every click, so every click would call the API and run the SQL again, making the page slower and loading the server for nothing.
+- **Will changes made on `index.php` show up on the dashboard? How fast?**
+  Yes they will: right away with Refresh, within 10 seconds on any click (cache), or within 30 seconds with auto-refresh.
+
+### Objective
+This ticket allows us to use Python as a data tool that makes the maintenance team's lives easier, with the data displayed for them to use. We use the JSON API to give Python the available data, and with this data Python converts it to dictionaries and a pandas DataFrame, analyzes it, and builds Plotly charts. A Streamlit dashboard (a second web page on port 8501, linked from `index.php`) shows the numbers, charts and table live, with filters, refresh, and CSV/PNG downloads. Every failure (Apache off, wrong URL, timeout) shows a clear message instead of crashing.

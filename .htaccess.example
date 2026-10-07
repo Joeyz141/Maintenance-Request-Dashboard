@@ -1,3 +1,6 @@
 # Copy this file to .htaccess and put your real local password in it.
 # .htaccess is gitignored. Never commit real passwords.
 SetEnv DB_PASS "PASSWORD"
+
+# Optional: where the Streamlit analytics dashboard lives (default: http://localhost:8501).
+# SetEnv ANALYTICS_URL "http://localhost:8501"
