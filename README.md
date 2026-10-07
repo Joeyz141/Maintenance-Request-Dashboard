@@ -9,6 +9,16 @@ through the development of a maintenance request management feature.
 The demo runs on an AWS EC2 server that is switched on for demos, so the link may be offline at other times.
 It uses fictional data and has no login, so please don't enter real information.
 
+## Screenshots
+
+**Maintenance requests list** (PHP): search, status and priority filters, create and edit requests
+
+![Maintenance requests list with search, filters and an Edit link on every request](maintenance_request_forms.png)
+
+**Analytics dashboard** (Python, Streamlit + Plotly): summary cards and charts built from the JSON API
+
+![Analytics dashboard with summary cards, a requests-by-status-and-priority chart and a requests-per-make chart](maintenance_requests_dashboard.png)
+
 ## Objective
 
 Develop a focused internal maintenance request management feature that
