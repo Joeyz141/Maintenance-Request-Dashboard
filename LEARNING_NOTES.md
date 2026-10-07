@@ -905,3 +905,137 @@ How the work was checked (so I didn't just trust the AI):
 
 ### Objective
 Ticket 10 gave the project a safety net: 22 Python and 25 PHP tests that run in seconds without Apache or MySQL, plus contract tests that keep the code in line with the database. The tests and a full code review found and fixed two input bugs (a crash that leaked a file path and an unlimited description) and a cookie weakness, and the duplicated status/priority lists now live in one place. The README and TESTING.md explain how anyone can set up, run and test the project.
+
+## Deployment: Live on AWS (EC2 + Docker Compose)
+
+### Goal
+Put the app on the internet so anyone with the link can use it, especially for my interviews, while keeping it **fast to set up and cheap**. I wanted to be able to switch the site on when I need it and off when I don't.
+
+**Live demo:** https://32-190-224-231.sslip.io (analytics: https://32-190-224-231.sslip.io/analytics/)
+
+### How I used Claude for this deployment
+Claude proposed one small server running Docker Compose, explained the cost and the trade-offs, and I agreed. 
+
+| Who | What |
+|---|---|
+| **Claude** | Proposed the simpler design and estimated the cost. Wrote all the deployment files (2 Dockerfiles, `compose.yaml`, the Caddyfile, the database setup scripts, `start.sh`, the systemd service, the EC2 setup script, `DEPLOY.md`). Saved them straight into my project folder. Gave me step-by-step AWS console instructions. Read the server log I sent and found why the site didn't load. Tested the live site in its browser pane. Made the Pacific time change. |
+| **Me** | Chose the fast and cheap option. Created the AWS account, picked the region (us-west-2 Oregon) and set up a budget alert. Ran Git (branch, commit, push, PR #12 and the Pacific time PR, merge). Launched the EC2 instance, attached the Elastic IP, rebooted it to deploy. Sent Claude screenshots and the server log when something was unclear. Decided on Pacific time. |
+
+How the work was checked:
+- **Checked before it ran:** Claude couldn't run the Docker images in its own workspace (Docker Hub was blocked there), so it checked what it could: `bash -n` on every script (syntax), `docker compose config` (the compose file is valid), `caddy validate` (the Caddyfile is valid), and a PHP test that the `Secure` cookie setting survives `session_set_cookie_params()` in `csrf.php`. It told me the first real run would be on AWS.
+- **Real evidence when it failed:** when the site didn't load, Claude didn't guess. It asked for the server's own log (EC2 → Get system log), saw that setup had finished, and worked out that the server was using its old temporary IP.
+- **Tested on the live site:** list, HTTPS, the JSON API with filters, create (`?created=13`), edit (`?updated=13`), a wrong CSRF token (403), a missing request (404), `src/` and `config/` blocked (403), and the analytics page with its charts. After the time zone change it checked the times again (17:42 became 10:42).
+
+- AI made a task that could have taken days take about an hour, but the decisions (cost vs. complexity, what to accept as a limitation) were mine, and the proof was the live site working, not the AI saying it would.
+
+### Architecture
+
+```
+visitor --HTTPS--> Caddy (ports 80/443, free Let's Encrypt certificate)
+                     |-- /            --> web       (PHP 8.2 + Apache: the same app as in XAMPP)
+                     |-- /analytics/  --> analytics (Python + Streamlit) --calls--> web's api/requests.php
+                                          web --PDO--> db (MariaDB 10.11, not reachable from the internet)
+```
+
+All four are **containers** on **one EC2 server** (t3.small, Ubuntu 24.04) with a fixed address (Elastic IP 32.190.224.231).
+
+
+### What we built
+
+| File | Job |
+|---|---|
+| `deploy/compose.yaml` | Describes the 4 containers, their settings (environment variables) and how they connect |
+| `deploy/web/Dockerfile` | PHP + Apache image: adds `pdo_mysql`, uses the production `php.ini`, copies ONLY the website files (no tests, SQL, notes or `.git`) |
+| `deploy/web/php-production.ini` | `display_errors` Off (errors go to the log, not the page), `Secure` session cookie, Pacific time |
+| `deploy/web/apache-security.conf` | Hides version numbers, blocks `src/` and `config/` in the browser (403) |
+| `deploy/analytics/Dockerfile` | Python 3.12 + Streamlit image, served under `/analytics/`, runs as a non-root user |
+| `deploy/caddy/Caddyfile` | The front door: HTTPS certificate, routing, security headers (`X-Frame-Options`, `nosniff`) |
+| `deploy/db/03-demo-data.sql` | 8 extra fictional requests so the charts have something to show |
+| `deploy/db/04-app-user.sh` | Creates the least-privilege `maintenance_app` user (cloud version of `create_app_user.sql`) |
+| `deploy/start.sh` | Runs at every boot: `git pull`, creates random passwords once, works out the site address from the server's IP, `docker compose up` |
+| `deploy/maintenance-dashboard.service` | systemd unit that runs `start.sh` at every boot |
+| `deploy/ec2-user-data.sh` | Pasted into EC2 "User data": runs once on the first boot (swap file, installs Docker and git, clones the repo, installs the service) |
+| `.gitattributes` | Keeps LF line endings for the Linux files, even on Windows (bash fails on CRLF) |
+| `DEPLOY.md` | How it works, how to use it, cost, and why not ECS/RDS |
+
+My app code (PHP, JavaScript, Python) didn't change. It already read its settings from environment variables (`getenv('DB_PASS')`, `os.getenv("API_URL")`), so in Docker we just set those variables in `compose.yaml` instead of `.htaccess`.
+
+### What happens when the server starts
+1. EC2 boots Ubuntu. systemd starts Docker, then our service runs `deploy/start.sh`.
+2. `start.sh` runs `git pull` to get the latest `main` from GitHub.
+3. The first time only, it creates `deploy/.env` with random database passwords (`openssl rand`). They are made on the server and never stored in git, like my gitignored `.htaccess`.
+4. It asks AWS "what is my public IP?" (the metadata service) and turns `32.190.224.231` into `32-190-224-231.sslip.io`.
+5. `docker compose up -d --build` builds the images (only what changed) and starts the 4 containers.
+6. The first time the database starts with an empty volume, MariaDB runs `schema.sql`, `seed.sql`, the demo data and the app-user script, in name order.
+7. Caddy gets an HTTPS certificate from Let's Encrypt for the sslip.io name (and keeps it for later boots).
+
+### Key concepts
+- **Docker image vs container:** the image is the recipe plus ingredients, packed (built from a `Dockerfile`); a container is a dish cooked from it and running. One image can run as many containers.
+- **Dockerfile:** step-by-step instructions to build an image: start `FROM` a base image, `RUN` commands, `COPY` files in, set the `CMD` to start.
+- **Docker Compose:** one YAML file that describes several containers and starts them together (`docker compose up`).
+- **Docker network:** containers reach each other by **service name**. PHP connects to `DB_HOST=db`, Streamlit calls `http://web/api/requests.php`. That's why the database user is `'maintenance_app'@'%'` (any container on the network) instead of `@'localhost'`.
+- **Volume:** storage that lives outside the container, so the database survives restarts, reboots and rebuilds.
+- **Reverse proxy (Caddy):** one front door that receives every request and forwards it to the right container. Only Caddy has ports open to the internet.
+- **HTTPS / Let's Encrypt:** free certificates that prove the site is who it says it is and encrypt the traffic. They need a domain name, not a bare IP.
+- **sslip.io:** a free DNS service where the name contains the IP (`32-190-224-231.sslip.io` → 32.190.224.231). It gave us a domain name for HTTPS without buying one.
+- **EC2:** a virtual computer rented from AWS by the hour. **Stop** = turned off (no compute cost, the disk stays). **Terminate** = deleted.
+- **Elastic IP:** a fixed public address. Without it the IP changes every time the server is stopped and started, and the link would break.
+- **Security group:** AWS's firewall. Ours only allows ports 80 and 443 in. No SSH, because we never log in to the server.
+- **User data / cloud-init:** a script EC2 runs once, as root, on the first boot. It let us set up the server without logging in.
+- **systemd service:** how Linux starts programs at boot. Ours makes "Start instance" mean "start the website", and "Reboot" mean "redeploy the latest code".
+- **Development vs production settings:** XAMPP shows errors on the page (useful while coding); production hides them (a visitor shouldn't see file paths or SQL) and logs them instead.
+- **Secrets on the server:** passwords are generated on the server and passed to the containers as environment variables. GitHub never sees them.
+- **Time zones:** MariaDB stores `TIMESTAMP` values in UTC and converts them when you read them, so setting `TZ=America/Los_Angeles` changed what the site shows (17:42 → 10:42) without changing the data.
+
+### Problems I debugged
+- **No "Associate" in the Elastic IP Actions menu:** the menu only shows actions for a selected row. Ticking the checkbox next to the IP first made "Associate Elastic IP address" appear.
+- **The site didn't load after launch:** the instance was Running with 3/3 checks passed, and the security group allowed 80 and 443. The **system log** (Actions → Monitor and troubleshoot → Get system log) showed setup had finished and all 4 containers had started at 10:42. The cause was timing: `start.sh` ran before I attached the Elastic IP, so Caddy asked for a certificate for the OLD temporary IP's name. A **Reboot** ran `start.sh` again with the new IP and the site worked. Lesson: read the log before guessing, and don't reboot while first-time setup is still running (the user-data script only runs once).
+- **Times were 7 hours ahead:** the server runs in UTC, so a request made at 10:42 showed 17:42. Fixed with `TZ: America/Los_Angeles` on the containers (plus `tzdata` in the slim Python image and `date.timezone` in PHP), then a push and a reboot.
+
+### Everyday use
+
+| I want to... | Do this |
+|---|---|
+| Turn the site on | EC2 → Instances → select → Instance state → **Start** (about 2 minutes) |
+| Turn it off | Instance state → **Stop** (the data stays) |
+| Deploy new code | Push/merge to `main` on GitHub, then **Reboot** the instance |
+| See what went wrong | Actions → Monitor and troubleshoot → **Get system log** |
+| Remove it for good | **Terminate** the instance AND **release** the Elastic IP |
+
+### Cost (approximate, us-west-2)
+| Item | Cost |
+|---|---|
+| t3.small server | ~$0.02 per hour while running (~$0.50/day) |
+| 20 GB disk | ~$1.60/month (even when stopped) |
+| Elastic IP | ~$3.60/month (charged even when stopped) |
+| **Two weeks left on** | **~$10**, paid from my $100 AWS credits |
+
+A budget alert emails me if spending goes over the limit I set.
+
+### Why one server and not ECS / RDS? (interview answer)
+For a demo, one server keeps the cost near zero and has few moving parts. It took about an hour instead of days. For a real company I would:
+- add **login/authentication**.
+- move the database to **RDS** (managed backups, updates, failover),
+- run the containers on **ECS Fargate** behind a **load balancer** 
+- add **GitHub Actions** to run pytest + PHPUnit and deploy on every merge,
+
+
+The Docker images would stay the same. That's one benefit of containers: the same image runs on my laptop, on one EC2 server, or on ECS.
+
+### Known limits
+- **One server:** if it's stopped or broken, the site is down. Fine for a demo I switch on myself.
+- **No login:** anyone with the link can create and edit requests (fictional demo data only). Request #13 "Deployment check (live site)" was created by the live test.
+- **No backups or automatic deploys yet** (see the ECS/RDS answer above).
+
+### Check yourself
+- **Why does `DB_HOST` say `db` instead of `localhost`?**
+  Each container is its own little computer. Inside the PHP container, `localhost` is the PHP container itself. Docker Compose gives each service a name on a shared network, so `db` reaches the database container.
+- **Where do the database passwords live, and why not in GitHub?**
+  In `deploy/.env` on the server, created by `start.sh` with `openssl rand`. My repository is public, so anything committed is visible to everyone. Same rule as `.htaccess` locally.
+- **Why did the site need a reboot after attaching the Elastic IP?**
+  `start.sh` builds the site name from the server's IP at boot. It first ran with the temporary IP, so Caddy got a certificate for the wrong name. Rebooting re-ran `start.sh` with the Elastic IP.
+- **What's the difference between Stop and Terminate?**
+  Stop turns the server off but keeps the disk (data, code, certificate), so Start brings the same site back. Terminate deletes the server and its disk.
+
+### Objective
+The Maintenance Request Dashboard is now live over HTTPS at a fixed link, with the PHP app, the JSON API and the Python analytics dashboard all running as Docker containers on one AWS EC2 server. Setup is automated (one user-data script, then "Reboot = redeploy"), passwords are generated on the server and never committed, errors are hidden from visitors, and the database isn't reachable from the internet. It costs about $0.50 a day and can be switched on and off from the AWS console.
