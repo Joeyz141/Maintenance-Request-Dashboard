@@ -45,10 +45,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // CSRF check FIRST: a POST without our secret token is stopped here with 403, before we read or save anything.
     csrf_check();
 
-    // Read the two dropdowns; ?? '' avoids a warning if a field is missing, trim() removes spaces.
+    // Read the two dropdowns with form_text() (validation.php): trimmed text, '' if missing or an array.
     $input = [
-        'status' => trim($_POST['status'] ?? ''),
-        'priority' => trim($_POST['priority'] ?? ''),
+        'status' => form_text($_POST, 'status'),
+        'priority' => form_text($_POST, 'priority'),
     ];
 
     // Ask the rules file if the input is OK; an empty array means yes.
@@ -108,11 +108,11 @@ $csrfToken = csrf_token();
         <p>
             <label for="status">Status</label><br>
             <select id="status" name="status">
-                <!-- Each ternary adds "selected" to the option matching $input['status'],
-                     so the dropdown starts on the request's current status. -->
-                <option value="open" <?= $input['status'] === 'open' ? 'selected' : '' ?>>Open</option>
-                <option value="in_progress" <?= $input['status'] === 'in_progress' ? 'selected' : '' ?>>In progress</option>
-                <option value="completed" <?= $input['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
+                <!-- One option per entry in STATUS_OPTIONS (validation.php). The ternary adds "selected"
+                     to the option matching $input['status'], so the dropdown starts on the current status. -->
+                <?php foreach (STATUS_OPTIONS as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $input['status'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
             </select>
             <!-- Shows the status error only if validation found one. -->
             <?php if (isset($errors['status'])): ?>
@@ -124,10 +124,10 @@ $csrfToken = csrf_token();
         <p>
             <label for="priority">Priority</label><br>
             <select id="priority" name="priority">
-                <!-- Same ternary trick: the current priority starts selected. -->
-                <option value="low" <?= $input['priority'] === 'low' ? 'selected' : '' ?>>Low</option>
-                <option value="medium" <?= $input['priority'] === 'medium' ? 'selected' : '' ?>>Medium</option>
-                <option value="high" <?= $input['priority'] === 'high' ? 'selected' : '' ?>>High</option>
+                <!-- Same loop with PRIORITY_OPTIONS: the current priority starts selected. -->
+                <?php foreach (PRIORITY_OPTIONS as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $input['priority'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
             </select>
             <!-- Shows the priority error only if validation found one. -->
             <?php if (isset($errors['priority'])): ?>

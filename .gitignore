@@ -8,3 +8,6 @@ __pycache__/
 
 vendor/
 .htaccess
+
+.pytest_cache/
+.phpunit.cache/

@@ -1,0 +1,5 @@
+# Tools for developers only (tests). The dashboard itself doesn't need them,
+# so they stay out of requirements.txt (and out of the AWS container later).
+# Install with:  python -m pip install -r reports\requirements-dev.txt
+-r requirements.txt
+pytest==9.1.1

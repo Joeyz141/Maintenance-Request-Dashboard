@@ -92,9 +92,10 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             <select name="status">
                 <!-- When the filter is '' none of them match, so the browser shows the first one ("All"). -->
                 <option value="">All statuses</option>
-                <option value="open" <?= $filters['status'] === 'open' ? 'selected' : '' ?>>Open</option>
-                <option value="in_progress" <?= $filters['status'] === 'in_progress' ? 'selected' : '' ?>>In progress</option>
-                <option value="completed" <?= $filters['status'] === 'completed' ? 'selected' : '' ?>>Completed</option>
+                <!-- One option per entry in STATUS_OPTIONS (validation.php), the same list the validation uses. -->
+                <?php foreach (STATUS_OPTIONS as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $filters['status'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
             </select>
         </label>
 
@@ -103,9 +104,9 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             Priority
             <select name="priority">
                 <option value="">All priorities</option>
-                <option value="low" <?= $filters['priority'] === 'low' ? 'selected' : '' ?>>Low</option>
-                <option value="medium" <?= $filters['priority'] === 'medium' ? 'selected' : '' ?>>Medium</option>
-                <option value="high" <?= $filters['priority'] === 'high' ? 'selected' : '' ?>>High</option>
+                <?php foreach (PRIORITY_OPTIONS as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $filters['priority'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
             </select>
         </label>
 

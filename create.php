@@ -45,13 +45,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // CSRF check FIRST: a POST without our secret token is stopped here with 403, before we read or save anything.
     csrf_check();
 
-    // Read each field from the form; ?? '' avoids warnings if a field is missing,
-    // and trim() removes spaces at both ends.
+    // Read each field from the form with form_text() (validation.php): it trims the text,
+    // gives '' for a missing field, and '' for an array (title[]=x) instead of crashing trim().
     $input = [
-        'title' => trim($_POST['title'] ?? ''),
-        'vehicle_id' => trim($_POST['vehicle_id'] ?? ''),
-        'description' => trim($_POST['description'] ?? ''),
-        'priority' => trim($_POST['priority'] ?? ''),
+        'title' => form_text($_POST, 'title'),
+        'vehicle_id' => form_text($_POST, 'vehicle_id'),
+        'description' => form_text($_POST, 'description'),
+        'priority' => form_text($_POST, 'priority'),
     ];
 
     // The ids that really exist, as text so they match what the form sends (see the type trap)
@@ -142,7 +142,11 @@ $csrfToken = csrf_token();
         <p>
             <label for="description">Description (optional)</label><br>
             <!-- The text between the textarea tags refills the description after an error (kept on one line on purpose). -->
-            <textarea id="description" name="description" rows="4" cols="50"><?= e($input['description']) ?></textarea>
+            <!-- maxlength = the same limit as validation.php (a convenience only; PHP re-checks). -->
+            <textarea id="description" name="description" rows="4" cols="50" maxlength="<?= DESCRIPTION_MAX_LENGTH ?>"><?= e($input['description']) ?></textarea>
+            <?php if (isset($errors['description'])): ?>
+                <span class="error"><?= e($errors['description']) ?></span>
+            <?php endif; ?>
         </p>
 
         <!-- PRIORITY: the values must exactly match the ENUM('low','medium','high').
@@ -151,10 +155,11 @@ $csrfToken = csrf_token();
         <p>
             <label for="priority">Priority</label><br>
             <select id="priority" name="priority">
-                <!-- Each ternary adds "selected" to the option matching $input['priority'] (medium on a first visit). -->
-                <option value="low" <?= $input['priority'] === 'low' ? 'selected' : '' ?>>Low</option>
-                <option value="medium" <?= $input['priority'] === 'medium' ? 'selected' : '' ?>>Medium</option>
-                <option value="high" <?= $input['priority'] === 'high' ? 'selected' : '' ?>>High</option>
+                <!-- One option per entry in PRIORITY_OPTIONS (validation.php): $value is saved, $label is shown.
+                     The ternary adds "selected" to the option matching $input['priority'] (medium on a first visit). -->
+                <?php foreach (PRIORITY_OPTIONS as $value => $label): ?>
+                    <option value="<?= e($value) ?>" <?= $input['priority'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+                <?php endforeach; ?>
             </select>
             <!-- Shows the priority error only if validation found one. -->
             <?php if (isset($errors['priority'])): ?>

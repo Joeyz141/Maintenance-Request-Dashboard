@@ -729,7 +729,7 @@ So changes made on `index.php` show up on the next run: right away with Refresh,
 
 | Problem | What the user sees |
 |---|---|
-| Apache is off | No answer at all (no status code). Red box: "Could not reach the API at ... Is Apache running in XAMPP?" |
+| Apache is off | No answer at all (no status code). Red box: "Could not reach the API at ... Is Apache running?" |
 | The API answers 404 or 500 | "The API answered with status 404." / "...status 500. The maintenance requests could not be loaded right now." (the API's own safe message) |
 | The answer isn't JSON | "The API did not answer with JSON. Check that API_URL points to api/requests.php." |
 | The API takes longer than 10 seconds | "The API took longer than 10 seconds to answer. Try again in a moment." |
@@ -756,7 +756,7 @@ All the library errors become **one** error type, `ApiError`, so the dashboard o
 | # | Test | Expected | Result |
 |---|---|---|---|
 | 1 | "View analytics dashboard" link on `index.php` | Opens the dashboard in a new tab | as expected |
-| 2 | Apache off → Refresh data | Red "Is Apache running in XAMPP?" box, no cards or charts | as expected |
+| 2 | Apache off → Refresh data | Red "Is Apache running?" box, no cards or charts | as expected |
 | 3 | Apache off → `python reports\maintenance_data.py` | One-line `Error: ...`, exit code 1 | as expected |
 | 4 | Apache back on → Refresh | Data comes back | as expected |
 | 5 | Wrong `API_URL` | `The API answered with status 404.` | as expected |
@@ -794,3 +794,114 @@ All the library errors become **one** error type, `ApiError`, so the dashboard o
 
 ### Objective
 This ticket allows us to use Python as a data tool that makes the maintenance team's lives easier, with the data displayed for them to use. We use the JSON API to give Python the available data, and with this data Python converts it to dictionaries and a pandas DataFrame, analyzes it, and builds Plotly charts. A Streamlit dashboard (a second web page on port 8501, linked from `index.php`) shows the numbers, charts and table live, with filters, refresh, and CSV/PNG downloads. Every failure (Apache off, wrong URL, timeout) shows a clear message instead of crashing.
+
+---
+
+## Ticket 10: Testing & Cleanup
+
+### Goal
+Add automated tests for the app's logic, review the whole codebase, fix what the tests and the review found, clean up the test data, and document how to set up, run and test the project (README + TESTING.md). Until now every check was manual (clicking around in the browser); tests turn those checks into code that re-runs in seconds after every change.
+
+### How I used Claude for this ticket
+Here I **delegated the writing and testing to Claude** and stayed in charge of the decisions, my machine and the verification.
+
+| Who | What |
+|---|---|
+| **Claude** | Wrote the test files (pytest + PHPUnit), the refactor, the bug fixes, README and TESTING.md. Read my files straight from my project folder, ran the test logic in its own sandbox, and tested the live app in its browser pane (forms, filters, API, CSRF, the crash case). Reported each change in a table with the reason. |
+| **Me** | Made the decisions (delete rows #10 and #11, skip the MySQL root password reset, run everything locally), installed the tools (pytest, Composer), ran the real test suites on my laptop, debugged the Composer zip error, reviewed the changes, and run Git (commit, push, PR). |
+
+How the work was checked (so I didn't just trust the AI):
+- **Tests that can fail:** Claude broke the code on purpose (`!= "completed"` instead of `isin(UNFINISHED)`, removed `fill_value=0`) and showed that the right tests failed. A test that never fails proves nothing.
+- **Test first, then fix:** the description-limit and shared-list tests were written first and failed (red), then the code was changed until they passed (green).
+- **Real tools on my machine:** Claude's sandbox couldn't install pytest or PHPUnit, so it used small stand-ins. The real proof was my run: `python -m pytest` → 22 passed, `vendor\bin\phpunit` → 25 tests OK.
+- **Live app checked after every change:** the regression list (list, filters, live search, API 200/400/404, create/edit errors, CSRF 403) was re-run in the browser.
+- **Nothing hidden:** every file Claude wrote was compared byte for byte with what landed in my folder, and the changes are visible in `git diff` before I commit.
+- **Limits respected:** Claude stopped and handed me the actions that need a person: confirming the DELETE in phpMyAdmin, installing software, and Git.
+
+- AI is fast at writing tests and spotting edge cases, but I still decide what matters, run the tests myself, and check that a test can actually fail.
+
+### What we built / changed
+
+| File | New or changed | Job |
+|---|---|---|
+| `tests/python/test_maintenance_data.py` | new | 22 pytest tests for `reports/maintenance_data.py` |
+| `pytest.ini` | new | Tells pytest where the tests are (`tests/python`) and adds `reports/` to the import path |
+| `reports/requirements-dev.txt` | new | Developer-only tools (`pytest==9.1.1`) + everything in `requirements.txt`. Kept separate so the dashboard (and its AWS container) doesn't install test tools |
+| `tests/php/ValidationTest.php` | new | 25 PHPUnit tests for `src/validation.php` |
+| `composer.json` / `composer.lock` | new | Composer's version of requirements.txt: asks for PHPUnit `^11.5`; the lock file records the exact versions installed (PHPUnit 11.5.57 + 26 packages it needs) |
+| `phpunit.xml` | new | PHPUnit settings: load `vendor/autoload.php`, run the tests in `tests/php` |
+| `src/validation.php` | changed | `STATUS_OPTIONS` and `PRIORITY_OPTIONS` (one place for the allowed values + their labels), `DESCRIPTION_MAX_LENGTH = 2000`, and `form_text()` (reads a form field safely) |
+| `index.php`, `create.php`, `edit.php` | changed | Dropdowns are built with `foreach` over the shared lists instead of typed-out `<option>`s; forms read input with `form_text()`; description limit + error message on the create form |
+| `src/csrf.php` | changed | Session cookie is now `HttpOnly` and `SameSite=Lax` |
+| `README.md` | changed | Features, architecture, setup, settings, how to run the dashboard and the tests, security notes |
+| `TESTING.md` | new | What each test suite covers, a 15-step manual checklist, and what isn't tested yet |
+| `.gitignore` | changed | Also ignores `.pytest_cache/` and `.phpunit.cache/` (`vendor/` was already there) |
+| small fixes | changed | Old comments (`report.py`, a `TICKET 6` marker, a stray `)`), the "maintenace" typo in `schema.sql`, a crash in the quick check at the bottom of `maintenance_data.py` when there are 0 rows |
+| Database | cleaned | Deleted test rows #10 and #11 (the `x'); DROP TABLE vehicles; --` titles from Ticket 4) |
+
+### What the tests check
+
+**Python (pytest), `maintenance_data.py`:**
+- `requests_to_dataframe()`: one row per request, real dates, `days_open` in whole days, an empty list still has all the columns.
+- `count_by()` / `status_priority_table()`: our fixed order, and 0 instead of a missing value (always 3 × 3).
+- `requests_per_make()`: sorted from most to least.
+- `summary()`: unfinished, urgent and oldest-unfinished counts; `None` when nothing is unfinished; an empty table doesn't crash; a new status like "cancelled" is NOT counted as unfinished.
+- `load_requests()`: every error path (Apache off, timeout, 404 HTML page, 500 with the API's message, not JSON, JSON without `data`) and that it sends the filters and `timeout=10`. These use a **fake** `requests.get` (monkeypatch), so no Apache is needed.
+
+**PHP (PHPUnit), `validation.php`:**
+- Title: required, 150 characters OK, 151 rejected, `é` counts as 1 character (`mb_strlen`, not bytes).
+- Vehicle must be a real id (999 and '' rejected); priority must match exactly ('HIGH', 'urgent' rejected); several errors are reported together.
+- Description optional, 2000 OK, 2001 rejected.
+- Status updates: 'cancelled' and 'urgent' rejected.
+- Filters: trimmed, cut at 100 characters, bad values ignored, `?q[]=x` arrays ignored.
+- `form_text()`: trims text, '' for a missing field, '' for an array.
+
+**Both: contract tests.** They read the `ENUM(...)` values from `database/schema.sql` and compare them with the PHP lists (`STATUS_OPTIONS`, `PRIORITY_OPTIONS`) and the Python lists (`STATUSES`, `PRIORITIES`).
+
+### Bugs the tests and review found
+
+| Bug | What happened | Fix |
+|---|---|---|
+| Form field sent as a list | A crafted POST with `title[]=x` made `trim()` crash: "Fatal error: Uncaught TypeError", and the page showed my full `C:\xampp\...` path | `form_text()` turns anything that isn't text into '', so the user just sees "Title is required." |
+| No description limit | The column is `TEXT` (about 65,000 bytes); a huge description would make MariaDB's strict mode refuse the INSERT → 500 error | Max 2000 characters, checked in PHP (with a clear message) and `maxlength` on the textarea |
+| Session cookie readable by JavaScript | `document.cookie` showed `PHPSESSID`, so an XSS bug could have stolen the session | `session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax'])` before `session_start()` |
+| Lists copied 11 times | The status/priority values were typed in validation (5×) and in the dropdowns of 3 pages | One list each in `validation.php`; everything reads from it, and the contract test keeps it in sync with the database |
+
+### Key concepts
+- **Unit test:** code that runs ONE function with a known input and checks the result. Three parts: **Arrange** (build the input) → **Act** (call the function) → **Assert** (check the result).
+- **Unit vs integration vs manual test:** a unit test tastes one sauce on its own; an integration test sends a whole dish through the kitchen (e.g. PHP + a real database); a manual test is a mystery diner using the app.
+- **Pure functions are easiest to test:** input in, result out, no database or network. That's why `validation.php` and the analysis functions were kept small.
+- **pytest:** finds files and functions starting with `test_`; `assert` checks a condition; `pytest.raises` checks that an error happens; `monkeypatch` swaps something (like `requests.get`) for one test and puts it back.
+- **PHPUnit:** a test class `extends TestCase`; every public method starting with `test` is a test; `assertSame` = `===` (same value and type).
+- **Composer vs pip:** both install packages. `composer.json` = what we want, `composer.lock` = the exact versions installed (committed, so everyone gets the same), `vendor/` = the downloaded packages (gitignored, rebuilt with `composer install`), like `.venv`.
+- **requirements.txt vs requirements-dev.txt:** what the app needs to run vs extra tools only developers need.
+- **Contract test:** checks that two parts that must agree (code lists and the database schema) still do.
+- **Refactoring under tests:** run the tests (green) → change the structure → run them again (still green) = the behavior didn't change.
+- **HttpOnly / SameSite cookies:** HttpOnly hides the cookie from JavaScript; SameSite=Lax stops the browser from sending it with a POST that starts on another website (a second lock next to the CSRF token).
+
+### Problems I debugged
+- **Composer isn't in winget:** `winget search composer` only showed "Bot Framework Composer" (an unrelated Microsoft tool) and "chsrc". Checking the exact Id before installing stopped me from installing the wrong program. I used Composer-Setup.exe and pointed it at `C:\xampp\php\php.exe`.
+- **"The zip extension and unzip/7z commands are both missing":** Composer downloads packages as .zip files and XAMPP's PHP had the zip extension switched off. The message also said which settings file it used: `C:\xampp\php\php.ini`. I turned on `extension=zip` (removed the `;`), checked with `php -m`, and `composer install` worked.
+
+### Commands
+
+| Suite | One-time setup | Run |
+|---|---|---|
+| Python | `python -m pip install -r reports\requirements-dev.txt` (venv on) | `python -m pytest` |
+| PHP | Install Composer, enable `extension=zip`, then `composer install` | `vendor\bin\phpunit` |
+
+### What is NOT tested yet
+- The SQL in `src/requests.php`: it needs a real (test) database, which makes it an integration test.
+- `js/dashboard.js`: it needs a browser or a JS test tool (e.g. Jest).
+- Running the tests automatically on every push (CI with GitHub Actions): planned for the AWS phase.
+
+### Check yourself
+- **Why do the contract tests read `schema.sql` instead of a list typed into the test?**
+  `schema.sql` is the single source of truth for the allowed values. If the test had its own typed list, it could be wrong in the same way as the code and still pass. Reading the schema means the test fails as soon as the database and the code disagree.
+- **A test passes. Does that prove the code has no bugs?**
+  No. A test proves only what it checks. That's why Claude also broke the code on purpose to show the tests can fail, and why the manual checklist still exists.
+- **Why write the description-length tests BEFORE changing `validation.php`?**
+  So we first see them fail (proving they check something real), then pass after the change (proving the change works).
+
+### Objective
+Ticket 10 gave the project a safety net: 22 Python and 25 PHP tests that run in seconds without Apache or MySQL, plus contract tests that keep the code in line with the database. The tests and a full code review found and fixed two input bugs (a crash that leaked a file path and an unlimited description) and a cookie weakness, and the duplicated status/priority lists now live in one place. The README and TESTING.md explain how anyone can set up, run and test the project.

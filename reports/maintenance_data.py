@@ -1,5 +1,5 @@
 # reports/maintenance_data.py
-# Shared functions for the Python report and the Streamlit dashboard.
+# Shared functions for the Streamlit dashboard (and its tests in tests/python/).
 
 # Step 1: load_requests() asks api/requests.php for the data
 # Step 2: requests_to_dataframe() turns those rows into a pandas table (DataFrame)
@@ -108,7 +108,7 @@ def requests_to_dataframe(rows):
 
 # --- Step 3. analysis ---------------------------------------------------------
 # Each function takes the DataFrame and answers ONE question.
-# Small functions = easy to test, and report.py AND dashboard.py can both reuse them.
+# Small functions = easy to test (tests/python/test_maintenance_data.py) and easy to reuse in dashboard.py.
 
 def count_by(df, column, order):
     """How many requests per value of one column in a fixed order."""
@@ -156,7 +156,7 @@ def summary(df):
 # --- Step 4. charts -----------------------------------------------------------
 # These functions BUILD a chart and RETURN it (a Plotly "figure" object).
 # They don't show anything themselves: the dashboard shows it with st.plotly_chart(fig),
-# and the test below shows it with fig.show().
+# and the quick check at the bottom of this file shows it with fig.show().
 
 def status_priority_chart(df):
     """Stacked bar chart: one bar per status, split into colors by priority."""
@@ -214,8 +214,8 @@ def make_chart(df):
 
 # This block runs ONLY when you run this file directly:
 #python reports\maintenance_data.py
-# When another file imports it (report.py, dashboard.py), __name__ is "maintenance_data",
-# not "__main__", so this quick test is skipped.
+# When another file imports it (dashboard.py, the tests), __name__ is "maintenance_data",
+# not "__main__", so this quick check is skipped.
 if __name__ == "__main__":
     try:
         rows = load_requests()
@@ -223,6 +223,8 @@ if __name__ == "__main__":
         print("Error:", error)
         raise SystemExit(1)   # stop here; exit code 1 tells the terminal "this failed"
     print(len(rows), "requests loaded")
+    if not rows:              # 0 requests: nothing to show (rows[0] below would crash with IndexError)
+        raise SystemExit(0)
     print(rows[0])   # the first row: a dict with id, title, priority, status, ...
 
     # Step 2 test: the same rows as a table
