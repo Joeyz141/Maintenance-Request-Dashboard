@@ -1,0 +1,4 @@
+# Files that run on Linux (the EC2 server) must keep LF line endings,
+# even when checked out on Windows (bash fails on CRLF: "$'\r': command not found").
+*.sh          text eol=lf
+deploy/**     text eol=lf

@@ -1,0 +1,16 @@
+# deploy/maintenance-dashboard.service
+# systemd unit: runs start.sh once at every boot, after Docker and the network are up.
+[Unit]
+Description=Maintenance Request Dashboard (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /opt/maintenance-dashboard/deploy/start.sh
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target
