@@ -620,3 +620,79 @@ A request walks through the checkpoints in order, and `send_json()` answers at t
 
 ### Objective
 I added a read-only JSON API, `api/requests.php`, so other programs (JavaScript in Ticket 8, Python in Ticket 9) can get the maintenance requests as data instead of an HTML page. It reuses the same functions as the HTML pages, so no existing file changed: `clean_request_filters()` for the `?q`, `?status` and `?priority` filters, `get_all_requests()` for the list, and `get_request_by_id()` for `?id=N`. Every request goes through four checkpoints (GET only → id written correctly → ask the database → found it) and gets exactly one answer from `send_json()`: a status code (200, 400, 404, 405 or 500), the `application/json` label, and a JSON body. A list comes back as `{data, count, filters}`, one request as `{data}`, and errors as `{error}`. Database errors are logged, never shown to the client, and no CSRF token is needed because the API only reads.
+
+## Ticket 8: JavaScript Front End (fetch + DOM)
+
+### Goal
+Now our `index.php` dashboard does not need to reload the entire page when filtering and searching for rows. Our JavaScript file (`js/dashboard.js`) asks the Ticket 7 API for the matching requests and changes only the rows, without reloading the whole page. If JavaScript is off or fails, the page still works the old way: the form reloads the page and PHP filters it (progressive enhancement).
+
+### What I built
+
+| File | New or changed | Job |
+|---|---|---|
+| `js/dashboard.js` | new | Makes the filter form on `index.php` work WITHOUT reloading the page: catches the submit, calls the API with `fetch()`, draws the rows with `textContent`, shows the Loading / "N requests found." / Sorry messages, keeps the URL in sync, handles Back/Forward and live search. |
+| `index.php` | changed | Added "name tags" so JS can find things: `id="filter-form"` on the form, `id="requests-body"` on the `<tbody>`, a new empty `<p id="status-message">` for messages, and `<script src="js/dashboard.js" defer>` in `<head>`. (`$filters` was already there from Ticket 6.) PHP still draws the full table on the first load. |
+| `api/requests.php` | not changed | The Ticket 7 API already answers with the JSON the page needs. |
+
+### How one Filter click works
+1. **Submit:** first you select any filters (search, status, priority) and click Filter. The button has `type="submit"`, so the form fires a `submit` event. Our listener calls `event.preventDefault()`, so the browser does **not** load a new page.
+2. **Order slip:** `new URLSearchParams(new FormData(form))` reads the fields by their `name` and builds the query string, e.g. `q=&status=completed&priority=`.
+3. **URL:** `history.pushState()` updates the address bar with those filters **without reloading**, so refresh, bookmarks and shared links show the same view.
+4. **Trip to the API:** we send that order slip to our `loadRequests()` **function**. It shows "Loading..." and calls `await fetch('api/requests.php?' + params)`.
+5. **The API answers:** `api/requests.php` cleans the filters, runs the SQL in `src/requests.php` (`get_all_requests()`), and answers with a status code and **JSON text**.
+6. **Check the answer:** JS checks `response.ok`. If it's OK, `await response.json()` converts the JSON text into a **JavaScript object** `{data, count, filters}`.
+7. **Draw:** `renderRows(result.data)` clears the old rows, then adds the rows to the table (one `<tr>` per request, cells made with `addCell()`), or the "No requests match your filters." row when nothing was found.
+8. **Message:** "1 request found." / "N requests found." (a ternary picks the singular or plural word).
+
+### The two safety nets
+
+| Problem | What `fetch` does | Who handles it |
+|---|---|---|
+| The API answers 404 or 500 | Does **not** fail: comes back normally with `response.ok = false` | `if (!response.ok)` → we `throw` the error ourselves → `catch` |
+| No answer at all (Apache off, no network) | **Fails** (throws `TypeError: Failed to fetch`) | `catch` |
+| The answer isn't valid JSON (e.g. a PHP crash page) | `fetch` is fine, but `response.json()` throws | `catch` |
+
+- `response.ok` checks the **status code** (`true` for 200-299). It does not check whether the body is valid JSON.
+- `catch` logs the real error with `console.error` (for developers), shows the user a short "Sorry..." message, and **clears the rows**, so an error never has old rows displayed under it.
+
+### Step 8 extras
+- **Back/Forward:** `pushState` adds an entry to the browser history when we click Filter (it writes the history). `popstate` notifies our program when the user presses **Back or Forward**; we read the URL's filters (`location.search`) with `URLSearchParams`, put them back in the form (`fillForm`) and send them to `loadRequests()` to redraw the rows.
+- **Live search:** the search box (title or VIN) updates the rows while we type. A **debounce** waits until we stop typing for 300 ms and then calls the API **once** (typing "Weird" = 1 call, not 5). Each key cancels the old countdown (`clearTimeout`) and starts a new one (`setTimeout`); the countdown is stored in `searchTimer`. Typing uses `replaceState`, which updates the URL **without** adding a history entry, so Back doesn't step through half-typed searches.
+- **Race guard:** this is **not** the timer. Each trip to the API gets a ticket number: `latestRequestNumber` is the "now serving" sign (the number of the newest trip), and `myRequestNumber` is this trip's own ticket. When an answer arrives, it is only drawn if its ticket still equals the sign, so a slow, old answer can't overwrite newer results.
+
+### Key concepts
+- **DOM:** the browser's live tree of the page. JS finds elements with `document.getElementById()` and changes them; the screen updates without a reload.
+- **`fetch` + Promise + `await`:** `fetch` returns a Promise (an IOU) right away; `await` pauses the `async` function until the answer arrives. Without `await` you get `Promise {<pending>}`, not the data.
+- **`textContent` vs `innerHTML`:** `textContent` always inserts plain text, so a title like `<img onerror=...>` or `x'); DROP TABLE vehicles; --` is only displayed, never run. `innerHTML` would turn data into real HTML (XSS). It's the JS version of `e()` in PHP.
+- **`defer`:** run the script after the whole HTML is read, otherwise `getElementById` returns `null` and the JS crashes.
+- **Progressive enhancement:** the form keeps `method="get" action="index.php"`, so without JS it still works with a normal reload.
+- **"No reload" vs "URL never changes":** `pushState` only rewrites the address bar text; nothing is loaded.
+- **0 rows is not an error:** the API answers 200 with an empty list, and we show the "No requests match your filters." row.
+
+### Tests
+
+| # | Test | Expected | Result |
+|---|---|---|---|
+| 1 | Filter with nothing selected | Same table as the PHP version | identical, 10 rows |
+| 2 | Completed / In progress + High / Medium / VIN search | Correct rows, no reload, correct message | 1 / 8 / 1 / 4 found |
+| 3 | Open + High | "No requests match your filters." + "0 requests found." | as expected |
+| 4 | URL after filtering + refresh | URL has the filters; refresh shows the same view (PHP) | as expected |
+| 5 | Back / Forward | Table, form and URL all go back together | as expected |
+| 6 | Type "Weird" quickly | 1 API call, no new history entries | 1 call, row #8 |
+| 7 | Slow old request + fast new request | Newer answer stays on screen | as expected |
+| 8 | API 500, HTML 500, non-JSON 200, network down | "Sorry..." message, rows cleared, real error in the Console | as expected |
+| 9 | XSS: rows #10/#11 and `<img onerror>` typed in search | Shown as text, nothing runs | 0 images created |
+| 10 | No JavaScript (normal form submit) | Full reload, PHP filters, dropdown kept | as expected |
+| 11 | Regression: create, edit?id=8, edit?id=999, ?created / ?updated messages, API ?id=abc | 200, 200, 404, messages, 400 | as expected |
+
+### Problems I debugged
+- **Old rows stayed on screen after an error:** found during testing (4 rows under "Sorry..."). Fixed by clearing the rows in `catch`.
+
+### Check yourself
+- **Does `fetch` fail on a 404?** No. It comes back with `response.ok = false`, so we check `ok` and throw ourselves. `fetch` only fails when there is no answer at all (Apache off, no network).
+- **Why `textContent` and not `innerHTML`?** Security, not difficulty: `innerHTML` turns data into real HTML, so an injected `<script>` or `<img onerror>` could run (XSS). `textContent` always shows it as plain text.
+- **What happens if JavaScript is off?** The page just resorts to the PHP version: the form submits normally, the page reloads, and PHP filters the rows.
+- **Why `pushState` on Filter but `replaceState` while typing?** We do `pushState` so the filters are added to the URL in the address bar (for refresh, sharing and Back), not for the API (`fetch` builds its own URL). Typing uses `replaceState` so the history isn't filled with half-typed searches.
+
+### Objective
+The objective was to make the dashboard's filters work without a page reload. `js/dashboard.js` catches the form's submit, builds the query string with `URLSearchParams`, and talks to the JSON API through `fetch()`, which calls `api/requests.php`, which uses the SQL in `src/requests.php`. It checks `response.ok` (because `fetch` doesn't fail on 404/500) and uses `try/catch` for network and JSON errors, then redraws only the table rows with `textContent`, so data can never run as HTML. The URL stays in sync with `pushState`, Back/Forward work through `popstate`, and live search waits for a 300 ms pause (debounce) with a race guard so old answers can't overwrite new ones. `index.php` only got ids and a deferred script tag, so without JavaScript it still works the PHP way.
