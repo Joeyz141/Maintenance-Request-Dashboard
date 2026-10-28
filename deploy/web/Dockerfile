@@ -18,11 +18,14 @@ COPY deploy/web/apache-security.conf /etc/apache2/conf-enabled/zz-security.conf
 
 # Copy ONLY the files the website needs. Not copied on purpose:
 # database/ (SQL), tests/, reports/ (own container), LEARNING_NOTES.md, composer files, .git.
-COPY index.php create.php edit.php /var/www/html/
+# Remember: a NEW page or folder must be added here too, or the live site won't have it
+# (Ticket 14: vehicles.php and css/ were missing, so the live site had no stylesheet).
+COPY index.php create.php edit.php vehicles.php /var/www/html/
 COPY api/    /var/www/html/api/
 COPY config/ /var/www/html/config/
 COPY src/    /var/www/html/src/
 COPY js/     /var/www/html/js/
+COPY css/    /var/www/html/css/
 
 # Apache listens on port 80 INSIDE the Docker network. Only Caddy talks to it.
 EXPOSE 80
