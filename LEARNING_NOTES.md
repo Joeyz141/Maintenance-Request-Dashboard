@@ -1069,3 +1069,34 @@ PHPUnit 25 OK, pytest 22 passed (no files they cover changed). Browser: desktop,
 
 ### Objective
 The dashboard now has a modern dark interface with live KPI numbers, colored status pills and priority meters, and it looks the same whether PHP or JavaScript drew the table.
+
+---
+
+## Ticket 12: Status Chips + Phone Layout
+
+### Goal
+Make filtering by status one click, and make the dashboard usable on a phone. No backend changes: the API already filters by status, and the chip counts reuse `get_status_counts()` from Ticket 11. Everything still works with JavaScript off.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `index.php` | Status chips (All · Open · In progress · Completed, with counts) replace the Status dropdown. Each chip is a **link** built with `http_build_query()` that keeps the current search + priority. The dropdown became `<input type="hidden" name="status">`. `data-label` on the Vehicle, VIN, Priority, Status and Created cells. Bottom tab bar (Requests, Analytics ↗). The New request button's words are in their own `<span>` |
+| `js/dashboard.js` | Chip clicks are caught (one listener on the chip row) and use the same no-reload path as the Filter button. `syncChips()` runs inside `loadRequests()` to move the orange chip and update the chip links. `addCell()` and the pill/meter/Edit cells add the same `data-label`s as PHP |
+| `css/style.css` | Chip styles. Under 700 px: the table becomes cards, the header links are hidden, the tab bar is pinned to the bottom and the New request button becomes a square **+** |
+
+### Key ideas
+- **Chips are links, so they work without JS.** With JS off, a chip loads `index.php?status=open` and PHP filters. With JS on, `preventDefault()` stops the reload, and JS fetches only the new rows.
+- **The hidden input is the "invisible dropdown".** The chips are outside the form, so the hidden input keeps the chosen status inside it. Without it, pressing Filter would drop the status.
+- **Same URL "order slip", different writer.** The browser writes it for the form. PHP (`http_build_query()`) and JS (`URLSearchParams`) write it for the chips.
+- **One doorway.** Chip, Filter, live search and Back all go through `loadRequests()`, so `syncChips()` is called once there instead of in four places.
+- **Media query** `@media (max-width: 700px)` = rules that only apply on narrow screens. The HTML stays the same; only the CSS changes (like `MediaQuery` in Flutter).
+- **`data-label` = name tags on each cell.** Under 700 px the header row is hidden, so the CSS shows each cell's name tag as a label in the card (`content: attr(data-label)`). PHP and JS both add them, because both draw rows.
+- **`position: fixed; bottom: 0`** keeps the tab bar at the bottom while scrolling. `padding-bottom` on the page stops the last card from hiding under it.
+- **"Visually hidden"** text is invisible but still read by screen readers.
+
+### Tests
+PHPUnit 25 OK, pytest 22 passed. Browser at desktop and phone width: chip counts, active chip, chips keep search + priority, no reload, Back/Forward, Filter keeps the chip, chip links update after live search, cards with labels (PHP and JS rows), "No requests" message, tab bar doesn't cover the last card, desktop unchanged, no console errors.
+
+### Objective
+Status filtering is now one click with live counts, and on a phone the requests show as cards with a bottom tab bar instead of a table that scrolls sideways.

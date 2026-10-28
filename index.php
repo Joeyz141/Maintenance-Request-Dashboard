@@ -76,7 +76,9 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             </nav>
 
             <!-- Link to the form for adding a new maintenance request -->
-            <a class="btn-accent" href="create.php">+ New request</a>
+            <!-- Ticket 12: the words are in their own <span> so phones can hide them and show just a square "+".
+                 Screen readers still read "New request" (the CSS hides it only visually). -->
+            <a class="btn-accent btn-new" href="create.php"><span aria-hidden="true">+</span><span class="btn-new__text">New request</span></a>
         </div>
     </header>
 
@@ -134,6 +136,44 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
          method/action stay, so the form still works with JS turned off. -->
     <!-- Ticket 11: one box (panel) holds the filters and the table -->
     <section class="panel rise">
+
+    <!-- Ticket 12: status chips (All · Open · In progress · Completed), each with its count.
+         They are plain LINKS, so they work with JS off: clicking one loads index.php?status=... and PHP filters (Ticket 6).
+         JS will catch the click in Step 2 and filter without a reload. -->
+    <?php
+    // The chip list: "All" first ('' = no status filter), then the 3 statuses from STATUS_OPTIONS.
+    // + joins two arrays: ['' => 'All'] + ['open' => 'Open', ...] = ['' => 'All', 'open' => 'Open', ...]
+    $chips = ['' => 'All'] + STATUS_OPTIONS;
+    ?>
+    <nav class="chips" id="status-chips" aria-label="Filter by status">
+        <?php foreach ($chips as $value => $label): ?>
+            <?php
+            // The number on the chip: the whole fleet for "All", otherwise this status's count (same numbers as the KPI cards).
+            $count = $value === '' ? $totalRequests : $statusCounts[$value];
+
+            // The chip's link KEEPS the current search and priority and only changes the status.
+            // http_build_query() turns the array into a URL query string: q=brake&status=open&priority=
+            $url = 'index.php?' . http_build_query([
+                'q'        => $filters['q'],
+                'status'   => $value,
+                'priority' => $filters['priority'],
+            ]);
+
+            // Is this the chip that's selected right now? ('' = All is selected when there's no status filter.)
+            $isActive = $filters['status'] === $value;
+            ?>
+            <!-- data-status = a name tag JS reads in Step 2 to know which status this chip is.
+                 aria-current = tells screen readers which chip is selected. -->
+            <a class="chip<?= $isActive ? ' is-active' : '' ?>"
+               href="<?= e($url) ?>"
+               data-status="<?= e($value) ?>"
+               <?= $isActive ? 'aria-current="true"' : '' ?>>
+                <?= e($label) ?>
+                <span class="chip__count"><?= e($count) ?></span>
+            </a>
+        <?php endforeach; ?>
+    </nav>
+
     <form method="get" action="index.php" id="filter-form" class="toolbar">
         <!-- Search box: name="q" → ?q=... ; it will search the title OR the VIN. -->
         <label>
@@ -143,20 +183,10 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             <input type="text" name="q" placeholder="Title or VIN" value="<?= e($filters['q']) ?>">
         </label>
 
-        <!-- Status filter: name="status" → ?status=...
-             value="" (empty) means "no status filter": PHP will treat an empty value as "show all".
-             The other values match the ENUM in schema.sql exactly. -->
-        <label>
-            Status
-            <select name="status">
-                <!-- When the filter is '' none of them match, so the browser shows the first one ("All"). -->
-                <option value="">All statuses</option>
-                <!-- One option per entry in STATUS_OPTIONS (validation.php), the same list the validation uses. -->
-                <?php foreach (STATUS_OPTIONS as $value => $label): ?>
-                    <option value="<?= e($value) ?>" <?= $filters['status'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-                <?php endforeach; ?>
-            </select>
-        </label>
+        <!-- Ticket 12: the Status dropdown is gone (the chips above replaced it).
+             This hidden field still carries the current status, so pressing Filter
+             keeps the chosen chip instead of resetting it. type="hidden" = sent with the form, not shown. -->
+        <input type="hidden" name="status" value="<?= e($filters['status']) ?>">
 
         <!-- Priority filter: When the filter is '' none of them match, so the browser shows the first one ("All"). --> 
         <label>
@@ -199,22 +229,26 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
         <!-- id="requests-body" lets JS find the rows and replace them with new ones. -->
         <tbody id="requests-body">
             <?php foreach ($requests as $request): ?>
+                <!-- Ticket 12: data-label="..." = the column name, stored on each cell.
+                     Desktop ignores it. On a phone (under 700 px) the CSS shows it as a small label
+                     inside the card ("VIN  TESTVIN..."), because the table headers are hidden there.
+                     ID, Title and Edit have no label: they're the card's top line and its button. -->
                 <tr>
                     <td class="cell-id">#<?= e($request['id']) ?></td>
                     <td class="cell-title"><?= e($request['title']) ?></td>
                     <!-- Vehicle: make + model on top, year underneath (no "Unit 104" numbers: they aren't in the database) -->
-                    <td>
+                    <td data-label="Vehicle">
                         <?= e($request['make'] . ' ' . $request['model']) ?>
                         <div class="sub"><?= e($request['model_year']) ?></div>
                     </td>
-                    <td class="cell-vin"><?= e($request['vin']) ?></td>
+                    <td class="cell-vin" data-label="VIN"><?= e($request['vin']) ?></td>
                     <!-- Ticket 11: priority meter = 3 small bars, 1/2/3 of them lit (orange) for low/medium/high,
                          then the readable label (Low / Medium / High) from PRIORITY_OPTIONS. -->
                     <?php
                     // Turn the priority word into a number of lit bars: 'high' → 3.
                     $level = ['low' => 1, 'medium' => 2, 'high' => 3][$request['priority']];
                     ?>
-                    <td class="cell-priority">
+                    <td class="cell-priority" data-label="Priority">
                         <span class="meter">
                             <?php for ($i = 1; $i <= 3; $i++): ?>
                                 <!-- bar number $i is lit ("on") if it's within the level: for medium (2), bars 1 and 2 -->
@@ -226,14 +260,14 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
 
                     <!-- Ticket 11: status pill. The class uses the ENUM value (pill--in_progress → amber in style.css),
                          the text uses the readable label from STATUS_OPTIONS ('In progress'). -->
-                    <td>
+                    <td data-label="Status">
                         <span class="pill pill--<?= e($request['status']) ?>"><?= e(STATUS_OPTIONS[$request['status']]) ?></span>
                     </td>
-                    <td class="cell-date"><?= e($request['created_at']) ?></td>
+                    <td class="cell-date" data-label="Created"><?= e($request['created_at']) ?></td>
                     <!-- Edit link for THIS row: the row's id goes into the URL, e.g. edit.php?id=8.
                          edit.php reads it back with $_GET['id'] and loads that one request.
                          e() escapes the id like every other printed value (defense in depth). -->
-                    <td><a class="edit-link" href="edit.php?id=<?= e($request['id']) ?>">Edit</a></td>
+                    <td class="cell-actions"><a class="edit-link" href="edit.php?id=<?= e($request['id']) ?>">Edit</a></td>
                 </tr>
             <?php endforeach; ?>
 
@@ -248,5 +282,23 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
     </div>
     </section>
     </main>
+
+    <!-- Ticket 12: bottom tab bar, for PHONES ONLY.
+         It's always in the HTML, but style.css hides it on wide screens (display: none)
+         and shows it under 700 px, where it replaces the header's Requests / Analytics links.
+         Why the bottom? On a phone your thumb reaches the bottom of the screen, not the top.
+         Same 2 links as the header nav; Vehicles is added in Ticket 14. -->
+    <nav class="tabbar" aria-label="Main">
+        <a class="tabbar__item is-active" href="index.php" aria-current="page">
+            <!-- list icon (3 lines), drawn with SVG like the wrench logo -->
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            <span>Requests</span>
+        </a>
+        <a class="tabbar__item" href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">
+            <!-- bar chart icon -->
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+            <span>Analytics ↗</span>
+        </a>
+    </nav>
 </body>
 </html>

@@ -7,6 +7,7 @@ const form          = document.getElementById('filter-form');     // the filter 
 const statusMessage = document.getElementById('status-message');  // the empty <p> for messages
 const tbody         = document.getElementById('requests-body');   // the table rows
 const searchBox     = form.querySelector('input[name="q"]');     // the Search box inside the form (step 8)
+const chipsNav      = document.getElementById('status-chips');    // Ticket 12: the row of status chips
 
 // --- 2. Ask the API for the requests that match the filters ---------------------------
 // async = this function is allowed to use await 
@@ -18,6 +19,11 @@ async function loadRequests(params) {
     // Give this trip a number: 1, 2, 3, ... (let = a variable that CAN change, unlike const).
     // ++ adds 1 first, then the new value is used.
     const myRequestNumber = ++latestRequestNumber;
+
+    // Ticket 12: make the chips match these filters (orange chip + up-to-date links).
+    // Every way of filtering (chip, Filter button, live search, Back/Forward) comes through here,
+    // so calling it once here keeps the chips right in all four cases.
+    syncChips(params);
 
     // Tell the user something is happening (the trip to the server takes a moment).
     statusMessage.textContent = 'Loading...';
@@ -75,10 +81,15 @@ async function loadRequests(params) {
 // Ticket 11: optional className = the CSS class for the cell (same classes as index.php), e.g. 'cell-vin'.
 // "= ''" is a default value: if we don't pass one, it's '' (no class).
 // It also RETURNS the cell, so we can add more inside it when needed (the vehicle's year).
-function addCell(row, text, className = '') {
+// Ticket 12: optional label = the column name for the phone cards, e.g. 'VIN' → data-label="VIN"
+// (same as index.php). dataset.label is how JS writes a data-label attribute.
+function addCell(row, text, className = '', label = '') {
     const cell = document.createElement('td'); // make a new, empty <td> (not on the page yet)
     cell.textContent = text;                   // put the text inside AS PLAIN TEXT (never as HTML)
     cell.className = className;                // ex: class="cell-vin"
+    if (label) {
+        cell.dataset.label = label;            // ex: data-label="VIN"
+    }
     row.appendChild(cell);                     // attach the cell to the end of the row
     return cell;
 }
@@ -103,6 +114,7 @@ const PRIORITY_INFO = {
 // Adds the Status cell: <td><span class="pill pill--in_progress">In progress</span></td>
 function addStatusPill(row, status) {
     const cell = document.createElement('td');
+    cell.dataset.label = 'Status';                        // Ticket 12: label for the phone card
     const pill = document.createElement('span');
     pill.className = 'pill pill--' + status;              // ex: "pill pill--in_progress" → amber in style.css
     pill.textContent = STATUS_LABELS[status] ?? status;   // ex: "In progress" (?? = fall back to the raw value)
@@ -117,6 +129,7 @@ function addPriorityMeter(row, priority) {
 
     const cell = document.createElement('td');
     cell.className = 'cell-priority';
+    cell.dataset.label = 'Priority';                       // Ticket 12: label for the phone card
 
     const meter = document.createElement('span');
     meter.className = 'meter';
@@ -164,19 +177,20 @@ function renderRows(requests) {
 
         // Vehicle (Ticket 11): make + model on top, the year in a small grey line under it,
         // same as the PHP version. + joins text in JS (like . in PHP).
-        const vehicleCell = addCell(row, request.make + ' ' + request.model); // ex: Toyota Camry
+        const vehicleCell = addCell(row, request.make + ' ' + request.model, '', 'Vehicle'); // ex: Toyota Camry
         const year = document.createElement('div');
         year.className = 'sub';
         year.textContent = request.model_year;          // ex: 2023
         vehicleCell.appendChild(year);
 
-        addCell(row, request.vin, 'cell-vin');          // VIN (ex: TESTVIN0000000002)
+        addCell(row, request.vin, 'cell-vin', 'VIN');   // VIN (ex: TESTVIN0000000002)
         addPriorityMeter(row, request.priority);        // Priority: bars + Low / Medium / High (Ticket 11)
         addStatusPill(row, request.status);             // Status: colored pill (Ticket 11)
-        addCell(row, request.created_at, 'cell-date');  // Created (ex: 2026-10-05 10:24:35)
+        addCell(row, request.created_at, 'cell-date', 'Created');  // Created (ex: 2026-10-05 10:24:35)
 
         // Column 8: the Edit link, e.g. <a href="edit.php?id=8">Edit</a>.
         const actionCell = document.createElement('td');
+        actionCell.className = 'cell-actions';          // Ticket 12: full-width button on the phone card
         const link = document.createElement('a');
         link.href = 'edit.php?id=' + encodeURIComponent(request.id); // encodeURIComponent = make it URL-safe
         link.textContent = 'Edit';
@@ -254,4 +268,71 @@ searchBox.addEventListener('input', function () {
 
         loadRequests(params);
     }, 300);
+});
+
+// --- 6. Status chips (Ticket 12) -------------------------------------------------------
+// The chips are links that PHP wrote (index.php?q=...&status=open&priority=...).
+// With JS off, clicking one reloads the page. With JS on, we catch the click and use the
+// SAME no-reload path as the Filter button: fill the form, pushState, loadRequests().
+
+// Makes the chips match the current filters:
+//  1. the chip for the current status gets "is-active" (orange) and aria-current
+//  2. every chip's link is rebuilt with the current search + priority, so the links never go stale
+//     (ex: after a live search for "oil", the Open chip's link includes q=oil, for Ctrl+click / new tab).
+function syncChips(params) {
+    const currentStatus = params.get('status') ?? '';   // '' = All
+
+    // querySelectorAll = find ALL elements matching the CSS selector (here: the 4 chips).
+    for (const chip of chipsNav.querySelectorAll('.chip')) {
+        const chipStatus = chip.dataset.status;           // reads data-status="open" from the HTML ('' for All)
+        const isActive = chipStatus === currentStatus;
+
+        // classList.toggle(name, true/false) = add the class if true, remove it if false.
+        chip.classList.toggle('is-active', isActive);
+
+        if (isActive) {
+            chip.setAttribute('aria-current', 'true');
+        } else {
+            chip.removeAttribute('aria-current');
+        }
+
+        // The JS twin of http_build_query() in index.php: same 3 keys, URL-safe.
+        const link = new URLSearchParams({
+            q: params.get('q') ?? '',
+            status: chipStatus,
+            priority: params.get('priority') ?? '',
+        });
+        chip.href = 'index.php?' + link.toString();
+    }
+}
+
+// ONE listener on the whole chip row instead of one per chip ("event delegation").
+// A click on any chip "bubbles up" to the row, and we work out which chip it was.
+chipsNav.addEventListener('click', function (event) {
+    // closest('.chip') = the chip that was clicked, even if the click landed on the number <span> inside it.
+    // null if the click was in the gap between chips.
+    const chip = event.target.closest('.chip');
+    if (!chip) {
+        return;
+    }
+
+    // Ctrl/Cmd/Shift + click = the user wants a new tab or window: let the browser follow the link normally.
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+    }
+
+    // Stop the normal link behavior (loading a new page). Same idea as preventDefault() on the form.
+    event.preventDefault();
+
+    // A live search may still be waiting (step 8): cancel it, the chip does the work now.
+    clearTimeout(searchTimer);
+
+    // Put the chip's status into the hidden input (the "invisible dropdown"),
+    // so the form now holds: the search box + this status + the priority.
+    form.elements.status.value = chip.dataset.status;
+
+    // From here it's exactly the Filter button's path (section 3).
+    const params = new URLSearchParams(new FormData(form));
+    history.pushState(null, '', 'index.php?' + params.toString());
+    loadRequests(params);   // loadRequests also calls syncChips(), so the orange chip moves
 });
