@@ -550,7 +550,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 700px) {
     .tabbar {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);    /* 2 equal tabs side by side (3 when Vehicles comes in Ticket 14) */
+        grid-template-columns: repeat(3, 1fr);    /* 3 equal tabs side by side: Requests, Vehicles, Analytics (Ticket 14) */
         position: fixed;                           /* fixed = stays on screen while the page scrolls */
         left: 0;
         right: 0;
@@ -829,3 +829,42 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     .segments { width: 100%; }
     .segments label { flex: 1; padding: 12px 4px; font-size: 12px; letter-spacing: .02em; }  /* tighter so "In progress" fits on 1 line */
 }
+
+/* ---------- 14. Vehicles page (Ticket 14) ---------- */
+/* small mono badge under the heading: "Read-only · managed by the fleet system" */
+.readonly-note {
+    display: inline-block;
+    margin: 14px 0 24px;                         /* 24px gap before the table panel */
+    padding: 6px 10px;
+    border: 1px solid var(--line2);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+/* the vehicle type name is a link, but looks like the bold title (orange on hover) */
+.row-link { color: var(--ink); text-decoration: none; }
+.row-link:hover { color: var(--accent); }
+
+/* the counts: mono font so the digits line up */
+.cell-num { font-family: var(--font-mono); font-size: 15px; color: var(--soft); }
+/* open count = a pill (section 7). Blue uses .pill--open; 0 open uses this white version. */
+.pill--clear { color: var(--ink); background: rgba(245, 243, 238, .08); }
+.pill--count::before { content: none; }          /* no dot: just the number, cleaner */
+
+/* "Vehicle: Ford F-150   Show all requests" line above the chips, when the list is filtered to one type */
+.vehicle-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    margin: 0;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 14px;
+}
+.vehicle-filter strong { color: var(--ink); }
+.vehicle-filter a { color: var(--accent); }

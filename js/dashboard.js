@@ -234,6 +234,9 @@ function fillForm(params) {
     form.elements.q.value        = params.get('q') ?? '';
     form.elements.status.value   = params.get('status') ?? '';
     form.elements.priority.value = params.get('priority') ?? '';
+    // Ticket 14: the vehicle type (hidden inputs), so Back/Forward keeps it right too.
+    form.elements.make.value     = params.get('make') ?? '';
+    form.elements.model.value    = params.get('model') ?? '';
 }
 
 // pushState() added entries to the browser history, but it doesn't redraw anything when you go back.
@@ -296,11 +299,13 @@ function syncChips(params) {
             chip.removeAttribute('aria-current');
         }
 
-        // The JS twin of http_build_query() in index.php: same 3 keys, URL-safe.
+        // The JS twin of http_build_query() in index.php: same 5 keys, URL-safe.
         const link = new URLSearchParams({
             q: params.get('q') ?? '',
             status: chipStatus,
             priority: params.get('priority') ?? '',
+            make: params.get('make') ?? '',      // Ticket 14
+            model: params.get('model') ?? '',    // Ticket 14
         });
         chip.href = 'index.php?' + link.toString();
     }

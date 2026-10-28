@@ -177,16 +177,25 @@ final class ValidationTest extends TestCase
 
     // --- clean_request_filters() --------------------------------------------------------
 
-    public function testNoFiltersGivesThreeEmptyValues(): void
+    public function testNoFiltersGivesFiveEmptyValues(): void
     {
-        $this->assertSame(['q' => '', 'status' => '', 'priority' => ''], clean_request_filters([]));
+        $this->assertSame(['q' => '', 'status' => '', 'priority' => '', 'make' => '', 'model' => ''], clean_request_filters([]));
     }
 
     public function testValidFiltersAreKept(): void
     {
-        $filters = clean_request_filters(['q' => 'brake', 'status' => 'open', 'priority' => 'high']);
+        $filters = clean_request_filters(['q' => 'brake', 'status' => 'open', 'priority' => 'high', 'make' => 'Ford', 'model' => 'F-150']);
 
-        $this->assertSame(['q' => 'brake', 'status' => 'open', 'priority' => 'high'], $filters);
+        $this->assertSame(['q' => 'brake', 'status' => 'open', 'priority' => 'high', 'make' => 'Ford', 'model' => 'F-150'], $filters);
+    }
+
+    // Ticket 14: make/model are trimmed and cut at 50 characters (VARCHAR(50) in schema.sql).
+    public function testMakeAndModelAreTrimmedAndCutAt50Characters(): void
+    {
+        $filters = clean_request_filters(['make' => '  Ford  ', 'model' => str_repeat('m', 60)]);
+
+        $this->assertSame('Ford', $filters['make']);
+        $this->assertSame(str_repeat('m', 50), $filters['model']);
     }
 
     public function testSearchIsTrimmedAndCutAt100Characters(): void
@@ -208,9 +217,9 @@ final class ValidationTest extends TestCase
     public function testArraysInTheUrlAreIgnored(): void
     {
         // ?q[]=x&status[]=open makes PHP give us ARRAYS instead of text.
-        $filters = clean_request_filters(['q' => ['x'], 'status' => ['open'], 'priority' => ['high']]);
+        $filters = clean_request_filters(['q' => ['x'], 'status' => ['open'], 'priority' => ['high'], 'make' => ['Ford'], 'model' => ['F-150']]);
 
-        $this->assertSame(['q' => '', 'status' => '', 'priority' => ''], $filters);
+        $this->assertSame(['q' => '', 'status' => '', 'priority' => '', 'make' => '', 'model' => ''], $filters);
     }
 
     // --- The lists must match the database (contract test) -------------------------------

@@ -6,6 +6,7 @@
 // How to call it (always with GET):
 //   api/requests.php                                -> every request
 //   api/requests.php?q=brake&status=in_progress     -> filtered list (same filters as index.php)
+//   api/requests.php?make=Ford&model=F-150          -> one vehicle type (Ticket 14)
 //   api/requests.php?id=1                           -> one request
 //
 // Status codes it can answer with:

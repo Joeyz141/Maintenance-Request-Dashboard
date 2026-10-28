@@ -1127,3 +1127,36 @@ PHPUnit 25 OK (no Python files changed). Browser at desktop and phone width: toa
 
 ### Objective
 The forms now match the dashboard, and saving shows a one-time "Request #N created/updated." toast instead of a message in the URL.
+
+## Ticket 14: Vehicles Page (Read-Only)
+
+### Goal
+Add a Vehicles page that shows each vehicle type (make + model) with how many vehicles there are and how many open and total requests they have. Clicking a type shows only its requests. Vehicles are read-only: they are master data owned by the fleet system, so this app has no add or edit for them.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `src/vehicles.php` | `get_vehicle_types_with_counts()`: `LEFT JOIN` vehicles → requests, `GROUP BY v.make, v.model`, `COUNT(DISTINCT v.id)` vehicles, `COUNT(CASE WHEN r.status = 'open' THEN r.id END)` open, `COUNT(r.id)` total |
+| `vehicles.php` (new) | Header, "Read-only · managed by the fleet system" badge, table with `class="requests"` (reuses the table look and the phone cards), open count as a pill (blue if > 0, white if 0, no dot). Each type links to `index.php?make=Ford&model=F-150`. No JavaScript |
+| `src/validation.php` | `clean_request_filters()` returns 5 keys: also `make` and `model` (string check, trimmed, max 50 characters) |
+| `src/requests.php` | `get_all_requests()` adds `v.make = :make` and `v.model = :model` when they are set |
+| `index.php` | Hidden `make` / `model` inputs in the filter form, chip links keep them, "Vehicle: Ford F-150 · Show all requests" line, `dashboard.js?v=` cache buster |
+| `js/dashboard.js` | `fillForm()` and `syncChips()` include make and model |
+| `index.php`, `create.php`, `edit.php` | Vehicles link in the header and the phone tab bar (3 tabs) |
+| `css/style.css` | Section 14 (badge, links, counts, `.pill--clear`, `.pill--count`, `.vehicle-filter`); tab bar `repeat(3, 1fr)` |
+| `tests/php/ValidationTest.php` | Filter tests updated to 5 keys + a new test for trimming and the 50-character limit |
+| `TESTING.md` | Manual checks 16 (Vehicles page) and 17 (vehicle filter) |
+
+### Key ideas
+- **LEFT JOIN vs JOIN.** Like a class roster (vehicles) and homework handed in (requests). JOIN keeps only the vehicles that have requests, so a vehicle with none gets no row at all. LEFT JOIN keeps every vehicle and fills the request columns with NULL. In phpMyAdmin, counting only open requests gave 1 row with JOIN and 3 rows with LEFT JOIN.
+- **COUNT(r.id), not COUNT(\*).** `COUNT(*)` counts the NULL row as 1; `COUNT(r.id)` skips NULLs, so "no requests" shows 0.
+- **DISTINCT.** After the join a vehicle appears once per request, so `COUNT(DISTINCT v.id)` counts each VIN once.
+- **One row per type, not per VIN.** A real fleet has many VINs per model, so the page groups by make + model. The VIN still shows on every request in the filtered list.
+- **Hidden inputs carry the filter.** The JS builds every API call from the form (`new FormData(form)`), so adding `make` and `model` as hidden fields made chips, search and Filter keep the vehicle type without new JS logic.
+
+### Tests
+PHPUnit 26 OK (pytest unaffected: no Python files changed). Browser at desktop and phone width: Vehicles page counts and pill colors, type → only its requests, chip / live search / Back keep the type, Filter with JavaScript off keeps it, API with `make=ford` (lowercase matches), unknown make → 0, `make[]=x` ignored, 80 characters cut to 50, `' OR '1'='1` → 0 rows, `<b>x</b>` escaped, 3 tabs on every page, no sideways scroll, no console errors (except the intended 400/404/405 tests).
+
+### Objective
+The app now has a read-only Vehicles page with request counts per vehicle type, and one click shows that type's requests.

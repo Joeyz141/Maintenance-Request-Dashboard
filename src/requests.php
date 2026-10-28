@@ -3,7 +3,7 @@
 // Data access for maintenance requests: SQL only, no HTML in this file.
 
 // Returns the requests (newest first), optionally filtered.
-// $filters comes from clean_request_filters(): ['q' => ..., 'status' => ..., 'priority' => ...], '' = no filter.
+// $filters comes from clean_request_filters(): ['q' => ..., 'status' => ..., 'priority' => ..., 'make' => ..., 'model' => ...], '' = no filter.
 // The default [] means "no filters", so get_all_requests($pdo) alone returns every request.
 // Used by index.php (the HTML page) and api/requests.php (the JSON API).
 function get_all_requests(PDO $pdo, array $filters = []): array
@@ -47,6 +47,18 @@ function get_all_requests(PDO $pdo, array $filters = []): array
     if (($filters['priority'] ?? '') !== '') {
         $where[] = 'r.priority = :priority';
         $params['priority'] = $filters['priority'];
+    }
+
+    // Ticket 14: vehicle type (from the Vehicles page). Exact match with placeholders, like status.
+    // = (not LIKE): "Ford" must not also match "Fordson". The collation is case-insensitive, so "ford" still matches.
+    if (($filters['make'] ?? '') !== '') {
+        $where[] = 'v.make = :make';
+        $params['make'] = $filters['make'];
+    }
+
+    if (($filters['model'] ?? '') !== '') {
+        $where[] = 'v.model = :model';
+        $params['model'] = $filters['model'];
     }
 
     // Part 2: add WHERE only if at least one filter is active.
