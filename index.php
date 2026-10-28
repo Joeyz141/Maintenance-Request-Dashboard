@@ -6,6 +6,7 @@ require __DIR__ . '/src/db.php';
 require __DIR__ . '/src/requests.php';
 require __DIR__ . '/src/helpers.php';
 require __DIR__ . '/src/validation.php';   
+require __DIR__ . '/src/flash.php';   // flash_take(): the one-time toast message (Ticket 13)
 
 // read the filters from the URL (?q=...&status=...&priority=) and clean them.
 // result always has 3 keys; '' = no filter. 
@@ -25,12 +26,10 @@ try {
     exit('Sorry, the maintenance requests could not be loaded right now.');
 }
 
-// After a successful save, create.php redirects here with ?created=ID in the URL.
-// (int) turns anything that isn't a number into 0, so junk in the URL can't do anything.
-$createdId = (int) ($_GET['created'] ?? 0);
-
-// After a successful edit, edit.php redirects here with ?updated=ID (same (int) protection).
-$updatedId = (int) ($_GET['updated'] ?? 0);
+// Ticket 13: the one-time message left by create.php / edit.php (e.g. "Request #8 updated."), or null.
+// flash_take() reads it AND deletes it, so a refresh won't show it again.
+// Called BEFORE any HTML: it may start the session, which sends a cookie header.
+$flash = flash_take();
 
 // Where the Streamlit analytics dashboard lives (Ticket 9).
 // getenv() reads ANALYTICS_URL (set it in .htaccess, like DB_PASS); ?: uses the local default if it isn't set.
@@ -49,7 +48,9 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-    <link rel="stylesheet" href="css/style.css">
+    <!-- Ticket 13: ?v=<last-saved time> = "cache buster". When style.css changes, the URL changes,
+         so browsers download the new file instead of reusing their old saved copy. -->
+    <link rel="stylesheet" href="css/style.css?v=<?= filemtime(__DIR__ . '/css/style.css') ?>">
 
     <!-- loads our JavaScript. defer = download it now, but run it only AFTER the whole
          HTML below has been read, so the ids it looks for (filter-form, requests-body, ...) exist -->
@@ -90,14 +91,10 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
         <p class="lede">Every job across the fleet, in one place.</p>
     </section>
 
-    <!-- Shows a confirmation only after create.php redirected here with ?created=ID. -->
-    <?php if ($createdId > 0): ?>
-        <p class="notice">Request #<?= e($createdId) ?> was created.</p>
-    <?php endif; ?>
-
-    <!-- Shows a confirmation only after edit.php redirected here with ?updated=ID. -->
-    <?php if ($updatedId > 0): ?>
-        <p class="notice">Request #<?= e($updatedId) ?> was updated.</p>
+    <!-- Ticket 13: toast, only when there is a flash message. role="status" = screen readers announce it politely.
+         e() escapes it like every printed value. Styled in style.css (Step 2). -->
+    <?php if ($flash !== null): ?>
+        <div class="toast" role="status"><?= e($flash) ?></div>
     <?php endif; ?>
 
     <!-- Ticket 11: the 4 KPI cards (Total, Open, In progress, Completed). -->
