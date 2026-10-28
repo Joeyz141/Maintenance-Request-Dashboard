@@ -11,9 +11,13 @@ It uses fictional data and has no login, so please don't enter real information.
 
 ## Screenshots
 
-**Maintenance requests list** (PHP): search, status and priority filters, create and edit requests
+**Requests dashboard** (PHP + JavaScript): status KPI cards, status chips, search and priority filter without a page reload, create and edit requests
 
-![Maintenance requests list with search, filters and an Edit link on every request](maintenance_request_forms.png)
+![Requests dashboard with KPI cards for total, open, in progress and completed requests, status chips, filters and the request table](screenshot_requests_dashboard.png)
+
+**Vehicles page** (read-only): requests per vehicle type, open count in blue (white when 0); one click shows that type's requests
+
+![Vehicles page listing each make and model with vehicle count, open requests and total requests](screenshot_vehicles.png)
 
 **Analytics dashboard** (Python, Streamlit + Plotly): summary cards and charts built from the JSON API
 
@@ -30,6 +34,8 @@ allows users to create, view, search, filter, and update maintenance requests.
 - **Create** a request (validated, CSRF-protected, Post/Redirect/Get)
 - **Update** a request's status and priority
 - **Search** by title or VIN and **filter** by status and priority, without a page reload (JavaScript + `fetch()`), and still working with JavaScript turned off
+- **Vehicles page** (read-only): open and total requests per vehicle type (make + model); click a type to see only its requests. Vehicles are master data owned by the fleet system, so the app doesn't add or edit them
+- **Modern UI**: dark theme, KPI cards, status chips, a "Request #N created/updated" toast, and a phone layout (cards + bottom tab bar)
 - **JSON API** (`api/requests.php`) used by the JavaScript front end and the Python dashboard
 - **Analytics dashboard** (Python, Streamlit + Plotly): summary cards, charts, table, CSV download
 - **Automated tests**: PHPUnit and pytest (see [TESTING.md](TESTING.md))
@@ -39,7 +45,8 @@ allows users to create, view, search, filter, and update maintenance requests.
 
 ```
 Browser ──HTTP──> Apache + PHP ──PDO──> MySQL (MariaDB)
-  │  index.php, create.php, edit.php        maintenance_dashboard
+  │  index.php, create.php, edit.php,       maintenance_dashboard
+  │  vehicles.php
   │  js/dashboard.js ──fetch──> api/requests.php (JSON)
   │                                  ▲
 Streamlit dashboard (Python, :8501) ─┘ requests.get()
@@ -47,9 +54,10 @@ Streamlit dashboard (Python, :8501) ─┘ requests.get()
 
 | Folder / file | Responsibility |
 |---|---|
-| `index.php`, `create.php`, `edit.php` | Pages: read input, call the functions below, print HTML |
+| `index.php`, `create.php`, `edit.php`, `vehicles.php` | Pages: read input, call the functions below, print HTML |
 | `api/requests.php` | JSON API (GET only): list, filters, one request by `?id=` |
 | `src/` | Shared PHP: `db.php` (connection), `requests.php` / `vehicles.php` (SQL), `validation.php` (rules + allowed values), `csrf.php`, `helpers.php` (`e()` escaping) |
+| `css/style.css` | The whole look: dark theme, KPI cards, chips, forms, toast, phone layout |
 | `js/dashboard.js` | Live search and filtering with `fetch()` |
 | `reports/` | Python: `maintenance_data.py` (API call + pandas analysis + charts), `dashboard.py` (Streamlit page) |
 | `database/` | `schema.sql` (tables), `seed.sql` (fictional sample data), `create_app_user.sql` (least-privilege DB user) |
