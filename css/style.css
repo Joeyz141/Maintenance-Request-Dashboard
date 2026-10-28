@@ -1,0 +1,450 @@
+/* css/style.css
+   Ticket 11: the "Fleet Service" look (dark, bold condensed headings, orange accent).
+   Claude wrote this file; the PHP/SQL/JS that fills the page is Joseph's.
+
+   How to read it:
+   1. Design tokens  = every color/font named ONCE as a CSS variable (--name), used everywhere with var(--name).
+   2. Base           = page background, text, links.
+   3. Header         = logo, nav (Requests / Analytics), New request button.
+   4. Page heading   = small orange label + big condensed title.
+   5. KPI cards      = 4 numbers with a growing bar.
+   6. Panel + form   = the box around the filters and the table.
+   7. Table, pills, meters.
+   8. Animations     = @keyframes + who uses them, turned off for prefers-reduced-motion.
+*/
+
+/* ---------- 1. Design tokens ---------- */
+:root {
+    --ground:  #0C0E10;   /* page background */
+    --surface: #13161A;   /* cards and panels */
+    --raised:  #15181B;   /* inputs */
+    --line:    #23282D;   /* borders */
+    --line2:   #2A3036;   /* stronger borders */
+    --ink:     #F5F3EE;   /* main text */
+    --soft:    #D4D8DC;   /* secondary text */
+    --muted:   #A3AAB2;   /* labels, hints */
+    --accent:  #FF7A29;   /* orange */
+    --accent2: #FF8A3D;   /* orange on hover */
+
+    /* one color per status (same names as the ENUM values) */
+    --open:        #7CC0FF;
+    --in_progress: #FFB547;
+    --completed:   #5CD6A0;
+
+    --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+    --font-body:    'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono:    'IBM Plex Mono', ui-monospace, monospace;
+
+    color-scheme: dark;   /* dark scrollbars and form controls */
+}
+
+/* ---------- 2. Base ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background-color: var(--ground);
+    /* the faint 48px grid: two thin lines repeated across and down */
+    background-image:
+        linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+a { color: var(--accent2); }
+a:hover { color: var(--ink); }
+
+/* keyboard users see where they are */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.mono { font-family: var(--font-mono); }
+
+/* ---------- 3. Header ---------- */
+.site-header {
+    border-bottom: 1px solid var(--line);
+    background: rgba(12, 14, 16, .85);
+}
+
+.site-header__inner {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 14px 24px;
+    display: flex;              /* flex = put the children in a row */
+    align-items: center;        /* ...centered vertically */
+    flex-wrap: wrap;            /* ...and wrap to a new line if the screen is narrow */
+    gap: 16px 24px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ink);
+    text-decoration: none;
+}
+
+/* orange square with one clipped corner */
+.brand__logo {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    clip-path: polygon(0 0, 100% 0, 100% 72%, 72% 100%, 0 100%);
+}
+
+.brand__name {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.nav {
+    display: flex;
+    gap: 4px;
+    flex: 1;                    /* take the free space, pushing the button to the right */
+}
+
+.nav a {
+    padding: 10px 14px;
+    color: var(--muted);
+    font-size: 14px;
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+}
+
+.nav a:hover { color: var(--ink); }
+
+/* the page you are on */
+.nav a.is-active {
+    color: var(--ink);
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+}
+
+/* the orange button (New request, Filter) */
+.btn-accent {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 18px;
+    border: 0;
+    background: var(--accent);
+    color: var(--ground);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color .15s;
+}
+
+.btn-accent:hover { background: var(--accent2); color: var(--ground); }
+
+/* ---------- 4. Page + heading ---------- */
+.page {
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+}
+
+.eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent2);
+}
+
+.page-title {
+    margin: 10px 0 0;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(40px, 6vw, 64px);  /* grows with the screen, between 40px and 64px */
+    line-height: .95;
+    text-transform: uppercase;
+}
+
+.lede {
+    margin: 10px 0 32px;
+    color: var(--muted);
+    font-size: 16px;
+    max-width: 560px;
+}
+
+/* green "Request #5 was created/updated." line (replaced by a toast in Ticket 13) */
+.notice {
+    margin: 0 0 24px;
+    padding: 12px 16px;
+    border-left: 4px solid var(--completed);
+    background: var(--surface);
+    color: var(--completed);
+    font-weight: 600;
+}
+
+/* ---------- 5. KPI cards ---------- */
+.kpis {
+    display: grid;                                   /* grid = rows AND columns */
+    grid-template-columns: repeat(4, minmax(0, 1fr)); /* 4 equal columns */
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.kpi {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px;
+}
+
+.kpi__label, .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.kpi__number {
+    margin-top: 8px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 56px;
+    line-height: 1;
+}
+
+/* the thin grey track and the colored bar inside it.
+   The bar's width (its share of the total) comes from PHP: style="width: 25%" */
+.kpi__track {
+    height: 4px;
+    margin-top: 16px;
+    background: var(--line);
+}
+
+.kpi__bar {
+    display: block;
+    height: 4px;
+    background: var(--ink);
+    transform-origin: left;    /* grow from the left edge (see @keyframes grow) */
+}
+
+/* one modifier class per status: the number and the bar take that status's color */
+.kpi--open        .kpi__number { color: var(--open); }
+.kpi--open        .kpi__bar    { background: var(--open); }
+.kpi--in_progress .kpi__number { color: var(--in_progress); }
+.kpi--in_progress .kpi__bar    { background: var(--in_progress); }
+.kpi--completed   .kpi__number { color: var(--completed); }
+.kpi--completed   .kpi__bar    { background: var(--completed); }
+
+/* ---------- 6. Panel + filter form ---------- */
+.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 16px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+}
+
+.toolbar label {
+    display: flex;
+    flex-direction: column;     /* label text on top, field below */
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--soft);
+}
+
+.toolbar input,
+.toolbar select {
+    height: 44px;
+    min-width: 180px;
+    padding: 0 12px;
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    border-radius: 0;           /* square corners everywhere */
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.toolbar input[name="q"] { min-width: 260px; }
+
+.toolbar input:hover,
+.toolbar select:hover { border-color: var(--accent); }
+
+.toolbar__clear {
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+.status-message {
+    margin: 0;
+    padding: 0 20px;
+    min-height: 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.status-message:not(:empty) { padding: 10px 20px; }
+
+/* ---------- 7. Table, pills, meters ---------- */
+.table-scroll { overflow-x: auto; }   /* small screens scroll the table sideways (cards come in Ticket 12) */
+
+.requests {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.requests th {
+    padding: 14px 12px;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.requests td {
+    padding: 16px 12px;
+    border-top: 1px solid #1E2327;
+    vertical-align: middle;
+}
+
+.requests th:first-child,
+.requests td:first-child { padding-left: 20px; }
+
+.requests tbody tr { transition: background-color .15s; }
+.requests tbody tr:hover { background: #181C20; }
+
+.cell-id   { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.cell-vin  { font-family: var(--font-mono); font-size: 13px; color: var(--soft); }
+.cell-date { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.cell-title { font-weight: 600; }
+
+/* "2023" under "Toyota Camry" */
+.sub { margin-top: 2px; font-size: 13px; color: var(--muted); }
+
+/* status pill: a colored dot + the label, on a faint tint of the same color */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pill::before {                 /* the dot, drawn by CSS (no extra HTML) */
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;   /* = the pill's text color */
+}
+
+.pill--open        { color: var(--open);        background: rgba(124, 192, 255, .12); }
+.pill--in_progress { color: var(--in_progress); background: rgba(255, 181, 71, .12); }
+.pill--completed   { color: var(--completed);   background: rgba(92, 214, 160, .12); }
+
+/* priority meter: 3 little bars, 1/2/3 of them lit for low/medium/high */
+.meter {
+    display: inline-flex;
+    gap: 2px;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.meter b {
+    display: inline-block;
+    width: 4px;
+    height: 14px;
+    background: var(--line2);
+}
+
+.meter b.on { background: var(--accent); }
+
+.cell-priority { font-size: 13px; white-space: nowrap; }
+
+/* Edit link styled as a small square button */
+.edit-link {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--line2);
+    color: var(--soft);
+    font-size: 13px;
+    text-decoration: none;
+    transition: border-color .15s, color .15s;
+}
+
+.edit-link:hover { border-color: var(--accent); color: var(--ink); }
+
+/* ---------- 8. Animations ---------- */
+/* @keyframes = the animation "script": where it starts (from) and where it ends (to). */
+@keyframes rise {                     /* fade in while moving up 14px */
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes grow {                     /* bar grows from 0 to its full width */
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(1); }
+}
+
+/* who plays which animation. "both" = keep the start state during the delay and the end state after. */
+.rise      { animation: rise .6s cubic-bezier(.2, .7, .2, 1) both; }
+.kpi__bar  { animation: grow 1s cubic-bezier(.2, .7, .2, 1) .3s both; }
+
+/* stagger: each card starts a little later than the one before */
+.kpi:nth-child(1) { animation-delay: .05s; }
+.kpi:nth-child(2) { animation-delay: .12s; }
+.kpi:nth-child(3) { animation-delay: .19s; }
+.kpi:nth-child(4) { animation-delay: .26s; }
+.panel.rise       { animation-delay: .33s; }
+
+/* table rows fade up too, a bit quicker, and also after JS redraws them (new rows = new animation) */
+.requests tbody tr { animation: rise .4s cubic-bezier(.2, .7, .2, 1) both; }
+.requests tbody tr:nth-child(2) { animation-delay: .03s; }
+.requests tbody tr:nth-child(3) { animation-delay: .06s; }
+.requests tbody tr:nth-child(4) { animation-delay: .09s; }
+.requests tbody tr:nth-child(n+5) { animation-delay: .12s; }
+
+/* People who turn on "reduce motion" in their OS get no animations at all. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+    }
+}
+
+/* ---------- Narrow screens (the full phone layout is Ticket 12) ---------- */
+@media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }  /* 4 cards → 2 per row */
+    .kpi__number { font-size: 44px; }
+}

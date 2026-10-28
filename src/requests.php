@@ -146,3 +146,32 @@ function update_request(PDO $pdo, int $id, array $data): void
 
     // No return value (void). If nothing actually changed, MariaDB reports 0 rows changed, and that is fine.
 }
+
+// Returns how many requests have each status, e.g. ['open' => 1, 'in_progress' => 8, 'completed' => 1].
+// Used by index.php for the KPI cards (Ticket 11).
+function get_status_counts(PDO $pdo): array
+{
+    // COUNT(*) counts rows; GROUP BY status makes it count once PER status (one result row per status).
+    // AS total = a name for the count column.
+    $sql = "
+        SELECT status, COUNT(*) AS total
+        FROM maintenance_requests
+        GROUP BY status
+    ";
+
+    // No user input in this query, so query() is fine (no placeholders needed, nothing to prepare).
+    $stmt = $pdo->query($sql);
+
+    // FETCH_KEY_PAIR = turn 2-column rows into one simple array: first column = key, second = value.
+    // ex: ['in_progress' => 8, 'open' => 1, 'completed' => 1]
+    $rows = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    // GROUP BY only returns statuses that HAVE requests. If nothing is open, 'open' is missing.
+    // So we loop over every status we know and use 0 for any missing one.
+    $counts = [];
+    foreach (STATUS_OPTIONS as $value => $label) {
+        $counts[$value] = $rows[$value] ?? 0;   // ?? 0 = "use 0 if this key doesn't exist"
+    }
+
+    return $counts;
+}
