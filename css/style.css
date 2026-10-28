@@ -11,6 +11,7 @@
    6. Panel + form   = the box around the filters and the table.
    7. Table, pills, meters.
    8. Animations     = @keyframes + who uses them, turned off for prefers-reduced-motion.
+   (9–11 = narrow screens, phone cards, tab bar: Ticket 12. 12 = toast, 13 = forms: Ticket 13.)
 */
 
 /* ---------- 1. Design tokens ---------- */
@@ -30,6 +31,8 @@
     --open:        #7CC0FF;
     --in_progress: #FFB547;
     --completed:   #5CD6A0;
+    --success:     #1F8A5B;   /* the toast's check square (Ticket 13) */
+    --error:       #FF9B9B;   /* validation messages on the forms (Ticket 13) */
 
     --font-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
     --font-body:    'IBM Plex Sans', system-ui, sans-serif;
@@ -183,16 +186,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     color: var(--muted);
     font-size: 16px;
     max-width: 560px;
-}
-
-/* green "Request #5 was created/updated." line (replaced by a toast in Ticket 13) */
-.notice {
-    margin: 0 0 24px;
-    padding: 12px 16px;
-    border-left: 4px solid var(--completed);
-    background: var(--surface);
-    color: var(--completed);
-    font-weight: 600;
 }
 
 /* ---------- 5. KPI cards ---------- */
@@ -607,4 +600,232 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     }
 
     body { padding-bottom: 80px; }                 /* room at the bottom so the last card isn't hidden under the bar */
+}
+
+/* ---------- 12. Toast (Ticket 13) ----------
+   The "Request #8 updated." message from the flash message. Pure CSS, no JavaScript:
+   it slides up, waits about 4 seconds, then fades out by itself. */
+.toast {
+    position: fixed;                               /* floats over the page, like the tab bar */
+    right: 24px;
+    bottom: 24px;                                  /* bottom-right corner */
+    z-index: 20;                                   /* above the tab bar (z-index 10) */
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px 12px 12px;
+    background: var(--surface);
+    border: 1px solid var(--line2);
+    border-left: 4px solid var(--completed);      /* green edge = "it worked" */
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+    pointer-events: none;                          /* clicks go THROUGH it, so it never blocks an Edit button */
+    /* two animations: slide in now; fade out after a 4s delay. "forwards" = stay hidden at the end. */
+    animation: toast-in .35s ease-out both, toast-out .4s ease-in 4s forwards;
+}
+
+/* the green check square in front of the text (::before = a little box CSS adds, no extra HTML) */
+.toast::before {
+    content: "\2713";                             /* \2713 = the check mark character */
+    display: grid;
+    place-items: center;                           /* centers the check inside the square */
+    width: 26px;
+    height: 26px;
+    background: var(--success);
+    color: var(--ink);
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(16px); }   /* starts a bit lower and invisible */
+    to   { opacity: 1; transform: none; }
+}
+
+@keyframes toast-out {
+    to { opacity: 0; visibility: hidden; }         /* hidden = gone for screen readers and the mouse too */
+}
+
+/* Phones: full width, sitting just ABOVE the bottom tab bar. */
+@media (max-width: 700px) {
+    .toast {
+        left: 16px;
+        right: 16px;
+        bottom: 84px;
+    }
+}
+
+/* Reduce motion: section 8 turns ALL animations off, which would leave the toast on screen forever.
+   This rule wins (.toast is more specific than *), so the toast just disappears after 6s, with no sliding. */
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: toast-out .01s linear 6s forwards !important; }
+}
+
+/* ---------- 13. Forms: create.php + edit.php (Ticket 13) ---------- */
+/* the dark box around the form: one column, 22px between fields */
+.form-card {
+    max-width: 720px;
+    padding: 28px;
+    display: grid;
+    gap: 22px;
+}
+
+/* one field = label on top, input below, error under it. fieldset gets the same look (no default border). */
+.field {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+/* "> label" = only the field's OWN label, not the segment labels inside .segments */
+.field > label,
+.field > legend {
+    padding: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--soft);
+}
+
+.field > legend { margin-bottom: 8px; }      /* a legend ignores "gap", so it gets its own space */
+
+.field__optional { color: var(--muted); font-weight: 400; }
+
+.field input[type="text"],
+.field select,
+.field textarea {
+    width: 100%;
+    height: 44px;
+    padding: 0 12px;
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    border-radius: 0;
+    color: var(--ink);
+    font: inherit;
+    font-size: 14px;
+}
+
+.field textarea {
+    height: auto;
+    min-height: 110px;
+    padding: 10px 12px;
+    resize: vertical;                            /* the user can drag it taller, not wider */
+}
+
+.field input[type="text"]:hover,
+.field select:hover,
+.field textarea:hover { border-color: var(--accent); }
+
+.field textarea:focus-visible {                  /* section 2's focus rule doesn't list textarea */
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.field__error {
+    margin: 0;
+    color: var(--error);
+    font-size: 13px;
+}
+
+/* Segmented control: radio buttons that look like one bar of buttons.
+   The real round radio is hidden VISUALLY only (not display:none), so the keyboard and screen readers still use it.
+   We style its <label> instead. */
+.segments {
+    display: flex;
+    width: fit-content;                          /* only as wide as its buttons */
+    border: 1px solid var(--line2);
+}
+
+.segments input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.segments label {
+    padding: 10px 20px;
+    border-left: 1px solid var(--line2);
+    background: var(--raised);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color .15s, color .15s;
+}
+
+.segments label:first-of-type { border-left: 0; }   /* no line before the first segment */
+.segments label:hover { color: var(--ink); }
+
+/* input:checked + label = "the label RIGHT AFTER a checked radio": the picked segment turns orange */
+.segments input:checked + label {
+    background: var(--accent);
+    color: var(--ground);
+    font-weight: 600;
+}
+
+/* keyboard users: an outline around the segment whose radio has focus (arrow keys move it) */
+.segments input:focus-visible + label {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.form-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding-top: 6px;
+}
+
+.form-actions__cancel { color: var(--muted); font-size: 14px; }
+
+/* Status segments on edit.php: the picked one takes its status color (the same --open / --in_progress / --completed
+   as the pills and KPI cards). [value="open"] = "only the radio whose value is open". */
+.segments--status input[value="open"]:checked + label        { background: var(--open); }
+.segments--status input[value="in_progress"]:checked + label { background: var(--in_progress); }
+.segments--status input[value="completed"]:checked + label   { background: var(--completed); }
+
+/* Read-only info on edit.php: a 3-column grid of name/value pairs, the title across the top */
+.info-card {
+    max-width: 720px;
+    margin: 0 0 16px;
+    padding: 20px 28px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px 24px;
+}
+
+.info-card__title { grid-column: 1 / -1; }      /* 1 / -1 = from the first column line to the last: full width */
+
+.info-card dt {
+    margin-bottom: 4px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.info-card dd { margin: 0; color: var(--ink); }
+
+.info-card__title dd {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 26px;
+    line-height: 1.1;
+    text-transform: uppercase;
+}
+
+.info-card__sub { color: var(--muted); }
+
+/* phones: less padding, segments stretch to the full width (each one an equal share) */
+@media (max-width: 700px) {
+    .info-card { padding: 20px; grid-template-columns: 1fr; }   /* one column: each pair on its own line */
+    .form-card { padding: 20px; }
+    .segments { width: 100%; }
+    .segments label { flex: 1; padding: 12px 4px; font-size: 12px; letter-spacing: .02em; }  /* tighter so "In progress" fits on 1 line */
 }

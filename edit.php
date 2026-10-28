@@ -2,13 +2,14 @@
 // edit.php
 // Shows one maintenance request so its status and priority can be changed.
 //   GET edit.php?id=8 -> load request #8, or answer 404 if it doesn't exist.
-//   POST (Save changes) -> check the CSRF token, validate, update the row, then redirect to index.php?updated=8.
+//   POST (Save changes) -> check the CSRF token, validate, update the row, set a flash message, then redirect to index.php.
 
 require __DIR__ . '/src/db.php';        // get_db_connection()
 require __DIR__ . '/src/requests.php';  // get_request_by_id(), update_request()
 require __DIR__ . '/src/helpers.php';   // e()
 require __DIR__ . '/src/validation.php'; // validate_status_update()
 require __DIR__ . '/src/csrf.php';       // csrf_token(), csrf_check()
+require __DIR__ . '/src/flash.php';      // flash_set() (Ticket 13)
 
 // The id comes from the URL (edit.php?id=8). URL input is untrusted text,
 // so (int) turns it into a whole number: "abc", "" or a missing id all become 0.
@@ -58,8 +59,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Input is valid: save it. If the database fails, log the real error and show a generic message.
         try {
             update_request($pdo, $id, $input);
+            // Ticket 13: one-time message for the toast on index.php.
+            flash_set('Request #' . $id . ' updated.');
             // Post/Redirect/Get: send the browser to the list, so a refresh can't re-submit the form.
-            header('Location: index.php?updated=' . $id);
+            header('Location: index.php');
             exit;
         } catch (PDOException $e) {
             error_log('Failed to update request: ' . $e->getMessage());
@@ -72,75 +75,124 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get this browser's secret token now, BEFORE any HTML is printed (starting a session sends a cookie header).
 $csrfToken = csrf_token();
 
+// Where the Streamlit analytics dashboard lives (same setting as index.php), for the header link.
+$analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
+
 // The closing PHP tag below switches from "PHP mode" to "HTML mode".
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Edit Maintenance Request</title>
-    <!-- Red text for validation errors. -->
-    <style> .error { color: #b00020; } </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Edit Request #<?= e($request['id']) ?> · Fleet Service</title>
+
+    <!-- Ticket 13: same fonts + stylesheet as index.php and create.php (with the ?v= cache buster). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+    <link rel="stylesheet" href="css/style.css?v=<?= filemtime(__DIR__ . '/css/style.css') ?>">
 </head>
 <body>
-    <!-- The heading shows WHICH request is being edited. e() escapes it like every printed value. -->
-    <h1>Edit request #<?= e($request['id']) ?></h1>
+    <!-- Same dark header as index.php. -->
+    <header class="site-header">
+        <div class="site-header__inner">
+            <a class="brand" href="index.php">
+                <span class="brand__logo">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0C0E10" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>
+                </span>
+                <span class="brand__name">Fleet Service</span>
+            </a>
+            <nav class="nav" aria-label="Main">
+                <a class="is-active" href="index.php">Requests</a>
+                <a href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">Analytics ↗</a>
+            </nav>
+            <a class="btn-accent btn-new" href="create.php"><span aria-hidden="true">+</span><span class="btn-new__text">New request</span></a>
+        </div>
+    </header>
 
-    <!-- READ-ONLY INFO: shown for context, but it is plain text, not a form field,
-         so it is never sent back and can't be changed from this page. -->
-    <p>
-        <strong><?= e($request['title']) ?></strong><br>
-        <?= e($request['model_year'] . ' ' . $request['make'] . ' ' . $request['model']) ?>
-        (VIN <?= e($request['vin']) ?>)<br>
-        Last updated: <?= e($request['updated_at']) ?>
-    </p>
+    <main class="page">
+        <!-- The heading shows WHICH request is being edited. e() escapes it like every printed value. -->
+        <section class="rise">
+            <div class="eyebrow">Request #<?= e($request['id']) ?></div>
+            <h1 class="page-title">Edit request</h1>
+            <p class="lede">Change the status or priority. The other details are read-only.</p>
+        </section>
 
-    <!-- method="post": this form CHANGES data, so it uses POST.
-         action="edit.php?id=8": the id rides along in the URL, so when the form is
-         submitted, $_GET['id'] still tells edit.php WHICH request this is. -->
-    <form method="post" action="edit.php?id=<?= e($request['id']) ?>">
-        <!-- Hidden CSRF token: invisible to the user, but sent with the form so csrf_check() can prove
-             the POST came from THIS page. Another website can't read this value, so it can't fake it. -->
-        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+        <!-- READ-ONLY INFO: plain text, not form fields, so it is never sent back and can't be changed here.
+             dl = "description list": dt is the name (VIN), dd is the value (TESTVIN...). -->
+        <dl class="panel info-card rise">
+            <div class="info-card__title">
+                <dt>Title</dt>
+                <dd><?= e($request['title']) ?></dd>
+            </div>
+            <div>
+                <dt>Vehicle</dt>
+                <dd><?= e($request['make'] . ' ' . $request['model']) ?> <span class="info-card__sub"><?= e($request['model_year']) ?></span></dd>
+            </div>
+            <div>
+                <dt>VIN</dt>
+                <dd class="mono"><?= e($request['vin']) ?></dd>
+            </div>
+            <div>
+                <dt>Last updated</dt>
+                <dd class="mono"><?= e($request['updated_at']) ?></dd>
+            </div>
+        </dl>
 
-        <!-- STATUS: the values must exactly match ENUM('open','in_progress','completed') in schema.sql.
-             The browser SENDS the value (in_progress) but SHOWS the text (In progress). -->
-        <p>
-            <label for="status">Status</label><br>
-            <select id="status" name="status">
-                <!-- One option per entry in STATUS_OPTIONS (validation.php). The ternary adds "selected"
-                     to the option matching $input['status'], so the dropdown starts on the current status. -->
-                <?php foreach (STATUS_OPTIONS as $value => $label): ?>
-                    <option value="<?= e($value) ?>" <?= $input['status'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <!-- Shows the status error only if validation found one. -->
-            <?php if (isset($errors['status'])): ?>
-                <span class="error"><?= e($errors['status']) ?></span>
-            <?php endif; ?>
-        </p>
+        <!-- method="post": this form CHANGES data. action="edit.php?id=8": the id rides along in the URL,
+             so after submitting, $_GET['id'] still tells edit.php WHICH request this is. -->
+        <form class="panel form-card rise" method="post" action="edit.php?id=<?= e($request['id']) ?>">
+            <!-- Hidden CSRF token: proves the POST came from THIS page. -->
+            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
 
-        <!-- PRIORITY: values must match ENUM('low','medium','high'). Same pattern as create.php. -->
-        <p>
-            <label for="priority">Priority</label><br>
-            <select id="priority" name="priority">
-                <!-- Same loop with PRIORITY_OPTIONS: the current priority starts selected. -->
-                <?php foreach (PRIORITY_OPTIONS as $value => $label): ?>
-                    <option value="<?= e($value) ?>" <?= $input['priority'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
-                <?php endforeach; ?>
-            </select>
-            <!-- Shows the priority error only if validation found one. -->
-            <?php if (isset($errors['priority'])): ?>
-                <span class="error"><?= e($errors['priority']) ?></span>
-            <?php endif; ?>
-        </p>
+            <!-- STATUS (Ticket 13): radio segments, like Priority on create.php.
+                 "segments--status" = an extra class so CSS can color the picked one by status (blue / amber / green).
+                 The values must match ENUM('open','in_progress','completed'); PHP re-checks them. -->
+            <fieldset class="field">
+                <legend>Status</legend>
+                <div class="segments segments--status">
+                    <?php foreach (STATUS_OPTIONS as $value => $label): ?>
+                        <input type="radio" id="status-<?= e($value) ?>" name="status" value="<?= e($value) ?>" <?= $input['status'] === $value ? 'checked' : '' ?>>
+                        <label for="status-<?= e($value) ?>"><?= e($label) ?></label>
+                    <?php endforeach; ?>
+                </div>
+                <?php if (isset($errors['status'])): ?>
+                    <p class="field__error"><?= e($errors['status']) ?></p>
+                <?php endif; ?>
+            </fieldset>
 
-        <!-- SUBMIT: sends status + priority as a POST to the action URL (edit.php?id=N). -->
-        <p>
-            <button type="submit">Save changes</button>
-        </p>
-    </form>
+            <!-- PRIORITY: same pattern as create.php; the current priority starts checked. -->
+            <fieldset class="field">
+                <legend>Priority</legend>
+                <div class="segments">
+                    <?php foreach (PRIORITY_OPTIONS as $value => $label): ?>
+                        <input type="radio" id="priority-<?= e($value) ?>" name="priority" value="<?= e($value) ?>" <?= $input['priority'] === $value ? 'checked' : '' ?>>
+                        <label for="priority-<?= e($value) ?>"><?= e($label) ?></label>
+                    <?php endforeach; ?>
+                </div>
+                <?php if (isset($errors['priority'])): ?>
+                    <p class="field__error"><?= e($errors['priority']) ?></p>
+                <?php endif; ?>
+            </fieldset>
 
-    <p><a href="index.php">Back to the list</a></p>
+            <div class="form-actions">
+                <button class="btn-accent" type="submit">Save changes</button>
+                <a class="form-actions__cancel" href="index.php">Cancel</a>
+            </div>
+        </form>
+    </main>
+
+    <!-- Same phone tab bar as index.php (Ticket 12). -->
+    <nav class="tabbar" aria-label="Main">
+        <a class="tabbar__item is-active" href="index.php">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            <span>Requests</span>
+        </a>
+        <a class="tabbar__item" href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+            <span>Analytics ↗</span>
+        </a>
+    </nav>
 </body>
 </html>

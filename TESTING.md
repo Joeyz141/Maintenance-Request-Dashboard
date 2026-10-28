@@ -29,9 +29,9 @@ Start Apache and MySQL in XAMPP. Open http://localhost/maintenance-dashboard/.
 |---|---|---|---|
 | 1 | List | Open the home page | Every request, newest first, with vehicle, VIN, priority, status, created date and an Edit link |
 | 2 | XSS | Create a request titled `<b>bold</b>` | Shows the tags as plain text, not bold |
-| 3 | Create | **+ New request** → fill in → Create | Back on the list with "Request #N was created."; refresh does not create it twice (PRG) |
+| 3 | Create | **+ New request** → fill in → Create | Back on the list with a "Request #N created." toast that fades out; refresh does not show it again or create it twice (flash message + PRG) |
 | 4 | Create validation | Submit with an empty title / no vehicle | Red message next to the field, typed values kept |
-| 5 | Edit | Edit a request → change status and priority → Save | "Request #N was updated." and the new values in the list |
+| 5 | Edit | Edit a request → change status and priority → Save | A "Request #N updated." toast and the new values in the list |
 | 6 | Edit 404 | Open `edit.php?id=999` and `edit.php?id=abc` | "Request not found" (status 404) |
 | 7 | CSRF | Submit a form after deleting its hidden `csrf_token` (DevTools) | 403 "this form has expired…" |
 | 8 | Search & filter | Type in Search; pick a status and a priority | The table updates without a page reload; the URL updates too |

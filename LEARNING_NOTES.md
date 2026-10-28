@@ -1100,3 +1100,30 @@ PHPUnit 25 OK, pytest 22 passed. Browser at desktop and phone width: chip counts
 
 ### Objective
 Status filtering is now one click with live counts, and on a phone the requests show as cards with a bottom tab bar instead of a table that scrolls sideways.
+
+## Ticket 13: Forms Restyle + Success Toast
+
+### Goal
+Give the New request and Edit pages the same modern look as the dashboard, and replace the plain "Request #N was updated." line with a toast that shows once. The only backend change is the flash message: validation, CSRF and the SQL stay the same.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `src/flash.php` (new) | `flash_set($message)` saves a one-time note in `$_SESSION['flash']`. `flash_take()` returns it **and deletes it** (`unset`), or returns `null` |
+| `create.php` / `edit.php` | After a successful save: `flash_set('Request #N created.')` / `('Request #N updated.')`, then redirect to plain `index.php` (no more `?created=N` / `?updated=N`). New look: same header, tab bar and stylesheet as the dashboard, viewport tag, fields in a dark card, errors under each field. Priority (and Status on edit) are **radio buttons styled as segments** instead of dropdowns. Edit shows the title, vehicle, VIN and last updated as a read-only info card |
+| `index.php` | `$flash = flash_take()` before any HTML; prints `<div class="toast" role="status">` when there is a message. Removed the `?created` / `?updated` code and the `.notice` lines. Stylesheet link has a cache buster: `style.css?v=<?= filemtime(...) ?>` |
+| `css/style.css` | Section 12: toast (fixed bottom-right, green check, slides in, fades out after 4 s). Section 13: form fields, segments, status colors, info card, phone rules. Removed `.notice` |
+| `TESTING.md` | Manual checks 3 and 5 describe the toast |
+
+### Key ideas
+- **Flash message = a sticky note in the coat-check locker.** The session (server side) holds the note. The browser only holds the session ID cookie. `flash_take()` reads the note and throws it away, so a refresh shows nothing.
+- **Headers before HTML.** `flash_take()` may start the session, which sends a `Set-Cookie` header. Headers go out before the body, so it must run before the first line of HTML (same rule as `csrf_token()`).
+- **The server never trusts the form.** The radios only offer valid values, but DevTools can change them, so PHP still validates.
+- **Browser cache.** The browser kept an old copy of `style.css` even though the file was new. `?v=<last-saved time>` changes the URL whenever the file changes, so browsers download the new copy (also matters for the live site).
+
+### Tests
+PHPUnit 25 OK (no Python files changed). Browser at desktop and phone width: toast after edit, gone after refresh, `?created=5` shows nothing, toast above the tab bar on phones and fades out, clicking and arrow keys pick segments, errors under the fields with the choice kept, fake `urgent` priority and `done` status rejected by PHP, status segment colors, no sideways scroll, no console errors.
+
+### Objective
+The forms now match the dashboard, and saving shows a one-time "Request #N created/updated." toast instead of a message in the URL.
