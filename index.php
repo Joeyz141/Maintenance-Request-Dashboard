@@ -54,7 +54,8 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
 
     <!-- loads our JavaScript. defer = download it now, but run it only AFTER the whole
          HTML below has been read, so the ids it looks for (filter-form, requests-body, ...) exist -->
-    <script src="js/dashboard.js" defer></script>
+    <!-- Ticket 14: same cache buster as style.css, because dashboard.js changed -->
+    <script src="js/dashboard.js?v=<?= filemtime(__DIR__ . '/js/dashboard.js') ?>" defer></script>
 </head>
 <body>
     <!-- Ticket 11: dark header. Logo + name, nav (Requests / Analytics), New request button. -->
@@ -73,6 +74,7 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
                  rel="noopener" stops the new tab from controlling this page (security habit with target="_blank"). -->
             <nav class="nav" aria-label="Main">
                 <a class="is-active" href="index.php" aria-current="page">Requests</a>
+                <a href="vehicles.php">Vehicles</a>
                 <a href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">Analytics ↗</a>
             </nav>
 
@@ -134,6 +136,15 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
     <!-- Ticket 11: one box (panel) holds the filters and the table -->
     <section class="panel rise">
 
+    <!-- Ticket 14: when the list is filtered to one vehicle type (from the Vehicles page), say so,
+         with a way back to everything. Only shown when make or model is in the URL. -->
+    <?php if ($filters['make'] !== '' || $filters['model'] !== ''): ?>
+        <p class="vehicle-filter">
+            Vehicle: <strong><?= e(trim($filters['make'] . ' ' . $filters['model'])) ?></strong>
+            <a href="index.php">Show all requests</a>
+        </p>
+    <?php endif; ?>
+
     <!-- Ticket 12: status chips (All · Open · In progress · Completed), each with its count.
          They are plain LINKS, so they work with JS off: clicking one loads index.php?status=... and PHP filters (Ticket 6).
          JS will catch the click in Step 2 and filter without a reload. -->
@@ -150,10 +161,13 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
 
             // The chip's link KEEPS the current search and priority and only changes the status.
             // http_build_query() turns the array into a URL query string: q=brake&status=open&priority=
+            // Ticket 14: make + model are kept too, so a chip stays inside the chosen vehicle type.
             $url = 'index.php?' . http_build_query([
                 'q'        => $filters['q'],
                 'status'   => $value,
                 'priority' => $filters['priority'],
+                'make'     => $filters['make'],
+                'model'    => $filters['model'],
             ]);
 
             // Is this the chip that's selected right now? ('' = All is selected when there's no status filter.)
@@ -184,6 +198,12 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
              This hidden field still carries the current status, so pressing Filter
              keeps the chosen chip instead of resetting it. type="hidden" = sent with the form, not shown. -->
         <input type="hidden" name="status" value="<?= e($filters['status']) ?>">
+
+        <!-- Ticket 14: the vehicle type travels the same way (hidden = sent, not shown).
+             Because JS builds every API call from this form (new FormData(form)), the Filter button,
+             live search and chips all stay inside the chosen vehicle type with NO extra JS. -->
+        <input type="hidden" name="make" value="<?= e($filters['make']) ?>">
+        <input type="hidden" name="model" value="<?= e($filters['model']) ?>">
 
         <!-- Priority filter: When the filter is '' none of them match, so the browser shows the first one ("All"). --> 
         <label>
@@ -290,6 +310,11 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             <!-- list icon (3 lines), drawn with SVG like the wrench logo -->
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
             <span>Requests</span>
+        </a>
+        <!-- Ticket 14: Vehicles tab (truck icon) -->
+        <a class="tabbar__item" href="vehicles.php">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6h13v10H1zM14 10h4l3 3v3h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+            <span>Vehicles</span>
         </a>
         <a class="tabbar__item" href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">
             <!-- bar chart icon -->

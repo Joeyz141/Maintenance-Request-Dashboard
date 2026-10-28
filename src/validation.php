@@ -87,12 +87,12 @@ function validate_status_update(array $input): array
 }
 
 // turns the raw URL values ($_GET) into safe filters for the request list.
-// Always returns all three keys; '' (empty) means "no filter" (show everything).
+// Always returns all five keys; '' (empty) means "no filter" (show everything).
 // Forgiving on purpose: a bad value is ignored instead of showing an error, because a search can't damage data.
 function clean_request_filters(array $get): array
 {
     // Start with "no filters at all"; each block below may fill one in.
-    $filters = ['q' => '', 'status' => '', 'priority' => ''];
+    $filters = ['q' => '', 'status' => '', 'priority' => '', 'make' => '', 'model' => ''];
 
     // Search text: accept it only if the key exists AND is a string (?q[]=x would make it an array),
     // then remove spaces at both ends and keep at most 100 characters.
@@ -111,6 +111,16 @@ function clean_request_filters(array $get): array
     if (isset($get['priority']) && is_string($get['priority'])
         && in_array($get['priority'], array_keys(PRIORITY_OPTIONS), true)) {
         $filters['priority'] = $get['priority'];
+    }
+
+    // Ticket 14: vehicle type from the Vehicles page, e.g. ?make=Ford&model=F-150.
+    // Same exists + string check as q, trimmed, at most 50 characters (make/model are VARCHAR(50) in schema.sql).
+    // The loop runs the same 3 lines twice: once with $key = 'make', once with $key = 'model'.
+    // No list check here: an unknown make simply matches no rows (an empty list), which is harmless.
+    foreach (['make', 'model'] as $key) {
+        if (isset($get[$key]) && is_string($get[$key])) {
+            $filters[$key] = mb_substr(trim($get[$key]), 0, 50);
+        }
     }
 
     return $filters;

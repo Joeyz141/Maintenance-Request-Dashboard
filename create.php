@@ -113,6 +113,7 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
             </a>
             <nav class="nav" aria-label="Main">
                 <a class="is-active" href="index.php">Requests</a>
+                <a href="vehicles.php">Vehicles</a>
                 <a href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">Analytics ↗</a>
             </nav>
         </div>
@@ -200,6 +201,11 @@ $analyticsUrl = getenv('ANALYTICS_URL') ?: 'http://localhost:8501';
         <a class="tabbar__item is-active" href="index.php">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
             <span>Requests</span>
+        </a>
+        <!-- Ticket 14: Vehicles tab (truck icon) -->
+        <a class="tabbar__item" href="vehicles.php">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6h13v10H1zM14 10h4l3 3v3h-7"/><circle cx="5.5" cy="18" r="1.8"/><circle cx="17.5" cy="18" r="1.8"/></svg>
+            <span>Vehicles</span>
         </a>
         <a class="tabbar__item" href="<?= e($analyticsUrl) ?>" target="_blank" rel="noopener">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>

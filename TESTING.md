@@ -7,7 +7,7 @@ the parts that need a browser, Apache and MySQL.
 
 | Suite | What it tests | Command (from the project folder) |
 |---|---|---|
-| **PHPUnit** (`tests/php/`) | `src/validation.php`: new-request rules, edit rules, filter cleaning, `form_text()`, and that the status/priority lists match `database/schema.sql` | `vendor\bin\phpunit` |
+| **PHPUnit** (`tests/php/`) | `src/validation.php`: new-request rules, edit rules, filter cleaning (incl. make/model, Ticket 14), `form_text()`, and that the status/priority lists match `database/schema.sql` | `vendor\bin\phpunit` |
 | **pytest** (`tests/python/`) | `reports/maintenance_data.py`: DataFrame building, counts, status × priority table, summary cards, every `load_requests()` error path (with a fake HTTP call), and that the Python lists match `schema.sql` | `python -m pytest` (venv on) |
 
 Neither suite needs Apache, MySQL or the internet. They test **pure functions**: input in, result out.
@@ -42,12 +42,14 @@ Start Apache and MySQL in XAMPP. Open http://localhost/maintenance-dashboard/.
 | 13 | API errors | Stop MySQL → reload the API | 500 with `{"error": "..."}` and no technical details |
 | 14 | Analytics | `python -m streamlit run reports\dashboard.py` → open http://localhost:8501 | Cards, 2 charts, table, Download CSV; filters change everything |
 | 15 | Analytics errors | Stop Apache → **Refresh data** | Red "Could not reach the API … Is Apache running?" message |
+| 16 | Vehicles page | Click **Vehicles** (header, or the phone tab bar) | One row per make + model with vehicle count, an open-count pill (blue if > 0, white if 0) and total; "Read-only · managed by the fleet system"; no add/edit buttons |
+| 17 | Vehicle filter | On Vehicles, click a type (e.g. Ford F-150); then a chip, a search, Back | Only that type's requests, "Vehicle: Ford F-150 · Show all requests" above the chips; chips/search/Back keep the vehicle; **Show all requests** removes it |
 
 ## 3. What is NOT covered (yet) and why
 
 | Not tested automatically | Why | How it's checked today |
 |---|---|---|
-| SQL in `src/requests.php` | Needs a real database; would be an *integration* test with a separate test database | Manual checks 1, 3, 5, 8 |
-| `js/dashboard.js` | Needs a browser (or a JS test tool such as Jest + jsdom) | Manual checks 8–11 |
+| SQL in `src/requests.php` and `src/vehicles.php` | Needs a real database; would be an *integration* test with a separate test database | Manual checks 1, 3, 5, 8, 16, 17 |
+| `js/dashboard.js` | Needs a browser (or a JS test tool such as Jest + jsdom) | Manual checks 8–11, 17 |
 | The Streamlit page itself | UI layout; the logic it uses is covered by pytest | Manual check 14 |
 | CI (tests on every push) | Planned for the AWS phase (GitHub Actions) | Run both suites before every PR |
