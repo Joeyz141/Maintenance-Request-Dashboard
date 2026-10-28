@@ -72,10 +72,67 @@ async function loadRequests(params) {
 // --- 2b. Draw the table rows from the API data ---------------------------------------
 // Adds ONE cell (<td>) with plain text to a row (<tr>).
 // Written once, used for every column .
-function addCell(row, text) {
+// Ticket 11: optional className = the CSS class for the cell (same classes as index.php), e.g. 'cell-vin'.
+// "= ''" is a default value: if we don't pass one, it's '' (no class).
+// It also RETURNS the cell, so we can add more inside it when needed (the vehicle's year).
+function addCell(row, text, className = '') {
     const cell = document.createElement('td'); // make a new, empty <td> (not on the page yet)
     cell.textContent = text;                   // put the text inside AS PLAIN TEXT (never as HTML)
+    cell.className = className;                // ex: class="cell-vin"
     row.appendChild(cell);                     // attach the cell to the end of the row
+    return cell;
+}
+
+// --- Ticket 11: pills and meters, the JS twin of the PHP in index.php -----------------
+// The API sends raw values ('in_progress', 'high'). These two lists turn them into
+// what people see. Same labels as STATUS_OPTIONS / PRIORITY_OPTIONS in validation.php.
+// const + { key: value } = a JS object used as a lookup list (like a PHP array with keys).
+const STATUS_LABELS = {
+    open: 'Open',
+    in_progress: 'In progress',
+    completed: 'Completed',
+};
+
+// For the priority meter: the label AND how many of the 3 bars to light.
+const PRIORITY_INFO = {
+    low:    { label: 'Low',    level: 1 },
+    medium: { label: 'Medium', level: 2 },
+    high:   { label: 'High',   level: 3 },
+};
+
+// Adds the Status cell: <td><span class="pill pill--in_progress">In progress</span></td>
+function addStatusPill(row, status) {
+    const cell = document.createElement('td');
+    const pill = document.createElement('span');
+    pill.className = 'pill pill--' + status;              // ex: "pill pill--in_progress" → amber in style.css
+    pill.textContent = STATUS_LABELS[status] ?? status;   // ex: "In progress" (?? = fall back to the raw value)
+    cell.appendChild(pill);
+    row.appendChild(cell);
+}
+
+// Adds the Priority cell: 3 bars (1/2/3 lit) + the label, same HTML as index.php:
+// <td class="cell-priority"><span class="meter"><b class="on"></b><b class="on"></b><b></b></span>Medium</td>
+function addPriorityMeter(row, priority) {
+    const info = PRIORITY_INFO[priority] ?? { label: priority, level: 0 }; // unknown value → 0 bars lit
+
+    const cell = document.createElement('td');
+    cell.className = 'cell-priority';
+
+    const meter = document.createElement('span');
+    meter.className = 'meter';
+
+    // Same loop as the PHP for(): count 1, 2, 3 and light the bars up to the level.
+    for (let i = 1; i <= 3; i++) {
+        const bar = document.createElement('b');
+        if (i <= info.level) {
+            bar.className = 'on';
+        }
+        meter.appendChild(bar);
+    }
+
+    cell.appendChild(meter);
+    cell.appendChild(document.createTextNode(info.label)); // the label as plain text (never HTML)
+    row.appendChild(cell);
 }
 
 // requests = result.data from the API: an array of objects like
@@ -100,25 +157,30 @@ function renderRows(requests) {
         const row = document.createElement('tr');
 
         // Column 1: ID. request.id reads the "id" field of this object (ex: 8).
-        addCell(row, request.id);
+        addCell(row, '#' + request.id, 'cell-id');      // ex: #8
 
         // Columns 2 to 7, in the same order as the <th> headers in index.php.
-        addCell(row, request.title);                    // Title (ex: Weird Sound)
+        addCell(row, request.title, 'cell-title');      // Title (ex: Weird Sound)
 
-        // Vehicle: 3 fields joined with spaces, same as the PHP version (Ticket 3).
-        // + joins text in JS (like . in PHP). model_year is a number (2023), but number + text = text.
-        addCell(row, request.model_year + ' ' + request.make + ' ' + request.model); // ex: 2023 Toyota Camry
+        // Vehicle (Ticket 11): make + model on top, the year in a small grey line under it,
+        // same as the PHP version. + joins text in JS (like . in PHP).
+        const vehicleCell = addCell(row, request.make + ' ' + request.model); // ex: Toyota Camry
+        const year = document.createElement('div');
+        year.className = 'sub';
+        year.textContent = request.model_year;          // ex: 2023
+        vehicleCell.appendChild(year);
 
-        addCell(row, request.vin);                      // VIN (ex: TESTVIN0000000002)
-        addCell(row, request.priority);                 // Priority (low / medium / high)
-        addCell(row, request.status);                   // Status (open / in_progress / completed)
-        addCell(row, request.created_at);               // Created (ex: 2026-10-05 10:24:35)
+        addCell(row, request.vin, 'cell-vin');          // VIN (ex: TESTVIN0000000002)
+        addPriorityMeter(row, request.priority);        // Priority: bars + Low / Medium / High (Ticket 11)
+        addStatusPill(row, request.status);             // Status: colored pill (Ticket 11)
+        addCell(row, request.created_at, 'cell-date');  // Created (ex: 2026-10-05 10:24:35)
 
         // Column 8: the Edit link, e.g. <a href="edit.php?id=8">Edit</a>.
         const actionCell = document.createElement('td');
         const link = document.createElement('a');
         link.href = 'edit.php?id=' + encodeURIComponent(request.id); // encodeURIComponent = make it URL-safe
         link.textContent = 'Edit';
+        link.className = 'edit-link';
         actionCell.appendChild(link);
         row.appendChild(actionCell);
 

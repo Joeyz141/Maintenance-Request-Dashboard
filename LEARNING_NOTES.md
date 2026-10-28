@@ -1039,3 +1039,33 @@ The Docker images would stay the same. That's one benefit of containers: the sam
 
 ### Objective
 The Maintenance Request Dashboard is now live over HTTPS at a fixed link, with the PHP app, the JSON API and the Python analytics dashboard all running as Docker containers on one AWS EC2 server. Setup is automated (one user-data script, then "Reboot = redeploy"), passwords are generated on the server and never committed, errors are hidden from visitors, and the database isn't reachable from the internet. It costs about $0.50 a day and can be switched on and off from the AWS console.
+
+---
+
+## Ticket 11: Visual Restyle (modern UI)
+
+### Goal
+My mentor said the app looked a little out dated. This ticket gives the dashboard a modern dark look and adds KPI cards, status pills and priority meters. No database changes, and the page still works with JavaScript off.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `css/style.css` (new) | All the looks: colors and fonts as CSS variables, header, KPI cards, table, status pills, priority meters, load animations (turned off for "reduce motion") |
+| `src/requests.php` | New `get_status_counts()`: `SELECT status, COUNT(*) AS total FROM maintenance_requests GROUP BY status`, with 0 filled in for any status that has no requests |
+| `index.php` | Links the stylesheet + fonts; new header (Fleet Service logo, Requests, **Analytics ↗**, + New request); "Service operations" heading; 4 KPI cards; pills and meters in each row; class names on the cells; vehicle shown as make + model with the year underneath |
+| `js/dashboard.js` | Same class names on the cells, plus `addStatusPill()` and `addPriorityMeter()`, so rows redrawn after a filter look the same as the PHP rows |
+
+### Key ideas
+- **HTML = what's there, CSS = how it looks.** They connect through class names (name tags): PHP/JS put `pill--completed` on the pill, and the CSS rule for that class makes it green.
+- **Two cooks draw the rows.** PHP draws them on page load; JS redraws them from JSON after a filter. Both must use the same class names, or the styling disappears after filtering 
+- **CSS variables** (`--accent: #FF7A29`) = name a color once, use it everywhere. **Flex** = a row, **grid** = rows and columns. **@keyframes** = a short animation script.
+- **COUNT + GROUP BY** = sort the rows into piles by status and count each pile.
+- `get_status_counts()` is a function; `$statusCounts` and `$totalRequests` are variables that hold results. `array_sum()` adds the counts for the Total card.
+- KPI cards show the whole fleet and don't change when I filter.
+
+### Tests
+PHPUnit 25 OK, pytest 22 passed (no files they cover changed). Browser: desktop, phone width, filter + Back, no results, JS off, reduced motion.
+
+### Objective
+The dashboard now has a modern dark interface with live KPI numbers, colored status pills and priority meters, and it looks the same whether PHP or JavaScript drew the table.
