@@ -309,8 +309,48 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .status-message:not(:empty) { padding: 10px 20px; }
 
+/* ---------- 6b. Status chips (Ticket 12) ---------- */
+.chips {
+    display: flex;
+    flex-wrap: wrap;            /* on a narrow screen the chips wrap onto a 2nd line */
+    gap: 8px;
+    padding: 16px 20px 0;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 14px;
+    background: var(--raised);
+    border: 1px solid var(--line2);
+    color: var(--soft);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;      /* it's a link, but it shouldn't look underlined */
+    transition: border-color .15s, color .15s, background-color .15s;
+}
+
+.chip:hover { border-color: var(--accent); color: var(--ink); }
+
+/* the number inside the chip, in the mono font */
+.chip__count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* the selected chip: orange fill, dark text */
+.chip.is-active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--ground);
+}
+.chip.is-active .chip__count { color: var(--ground); }
+
 /* ---------- 7. Table, pills, meters ---------- */
-.table-scroll { overflow-x: auto; }   /* small screens scroll the table sideways (cards come in Ticket 12) */
+.table-scroll { overflow-x: auto; }   /* medium screens scroll the table sideways; under 700 px it becomes cards (end of file) */
 
 .requests {
     width: 100%;
@@ -443,8 +483,128 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     }
 }
 
-/* ---------- Narrow screens (the full phone layout is Ticket 12) ---------- */
+/* ---------- 9. Narrow screens ---------- */
 @media (max-width: 900px) {
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }  /* 4 cards → 2 per row */
     .kpi__number { font-size: 44px; }
+}
+
+/* ---------- 10. Phones: the table becomes cards (Ticket 12) ----------
+   @media (max-width: 700px) = "use these rules ONLY when the screen is 700 px wide or less".
+   Same HTML as desktop; only the CSS changes. 
+   Idea: stop treating the table as a table. Every row becomes a block (a card),
+   every cell becomes its own line, and each line shows its column name from data-label. */
+@media (max-width: 700px) {
+    .table-scroll { overflow-x: visible; }          /* cards fit the screen: no sideways scroll */
+
+    .requests thead { display: none; }              /* hide the header row: each card shows its own labels */
+
+    /* table / tbody / tr / td stop acting like a table and stack like normal boxes */
+    .requests,
+    .requests tbody,
+    .requests tr,
+    .requests td { display: block; width: 100%; }
+
+    .requests tbody { padding: 12px; }
+
+    /* one row = one card */
+    .requests tbody tr {
+        margin-bottom: 12px;
+        padding: 14px 16px;
+        background: var(--raised);
+        border: 1px solid var(--line2);
+    }
+    .requests tbody tr:last-child { margin-bottom: 0; }
+
+    /* one cell = one line inside the card. The left 104px is kept free for the label. */
+    .requests td {
+        position: relative;                         /* so the label (::before) can sit at its left edge */
+        padding: 9px 0 9px 104px;
+        border-bottom: 1px solid var(--line);
+    }
+
+    /* the label: attr(data-label) = "print the value of this cell's data-label attribute" */
+    .requests td::before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        top: 11px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--muted);
+    }
+
+    /* cells WITHOUT a label (ID, Title, Edit, "No requests match") use the full width and show no label */
+    .requests td:not([data-label]) { padding-left: 0; }
+    .requests td:not([data-label])::before { content: none; }
+
+    /* card top: the ID small, the title big, no lines under them */
+    .requests td.cell-id    { padding: 0; border-bottom: 0; }
+    .requests td.cell-title { padding: 2px 0 10px; font-size: 18px; }
+
+    /* card bottom: the Edit button across the whole card */
+    .requests td.cell-actions { padding-top: 12px; border-bottom: 0; }
+    .edit-link { display: flex; justify-content: center; }
+}
+
+/* ---------- 11. Bottom tab bar (Ticket 12) ----------
+   Hidden on wide screens. Under 700 px it's pinned to the bottom of the screen
+   and the header's Requests / Analytics links are hidden (the tab bar replaces them). */
+.tabbar { display: none; }
+
+@media (max-width: 700px) {
+    .tabbar {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);    /* 2 equal tabs side by side (3 when Vehicles comes in Ticket 14) */
+        position: fixed;                           /* fixed = stays on screen while the page scrolls */
+        left: 0;
+        right: 0;
+        bottom: 0;                                 /* pinned to the bottom edge */
+        z-index: 10;                               /* drawn ON TOP of the cards scrolling under it */
+        background: rgba(12, 14, 16, .96);
+        border-top: 1px solid var(--line);
+    }
+
+    .tabbar__item {
+        display: flex;
+        flex-direction: column;                    /* icon on top, word under it */
+        align-items: center;
+        gap: 4px;
+        padding: 10px 0 12px;
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        text-decoration: none;
+    }
+
+    /* the page you are on: orange, with an orange line on top */
+    .tabbar__item.is-active {
+        color: var(--accent);
+        box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    .site-header .nav { display: none; }           /* the tab bar does this job on phones */
+    /* "+ New request" becomes a square "+" button on the right (as in the phone mockup) */
+    .btn-new {
+        margin-left: auto;
+        width: 44px;
+        padding: 0;
+        justify-content: center;
+        font-size: 26px;
+    }
+    /* "visually hidden": invisible and takes no space, but screen readers still read "New request" */
+    .btn-new__text {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    body { padding-bottom: 80px; }                 /* room at the bottom so the last card isn't hidden under the bar */
 }
